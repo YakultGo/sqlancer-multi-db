@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn clean:*)",
+      "Bash(mvn package:*)",
+      "Bash(java:*)",
+      "Bash(javap -c sqlancer.ComparatorHelper)",
+      "Bash(ls:*)",
+      "Bash(bash test_all_oracles.sh)",
+      "Bash(psql:*)",
+      "Bash(bash test_oracles_full.sh)",
+      "Bash(grep -E \"\\(Exception|Error|error|cannot|unsupported\\)\" /d/Jack.Xiao/dbtools/sqlancer-main/sqlancer-main/logs/oracle_full_test/*.log)",
+      "Bash(grep -rhE \"\\(cannot|unsupported|invalid|type.*error|JSON|UUID|BYTEA|ARRAY|ENUM|TIME|DATE|TIMESTAMP|INTERVAL\\)\" /d/Jack.Xiao/dbtools/sqlancer-main/sqlancer-main/logs/oracle_full_test/*.log)",
+      "Bash(python analyze_sqlancer_logs.py scan --verbose logs/postgres/)",
+      "Bash(python:*)",
+      "Bash(bash analyze_sqlancer_logs.sh scan)",
+      "Bash(mkdir -p logs/json_coverage_test)",
+      "Bash(java -jar target/sqlancer-2.0.0.jar --host localhost --port 5432 --username tpcc --password Taurus@123 --database-prefix jsontest --num-tries 1 --timeout-seconds 120 --num-threads 1 postgres --enable-json true --oracle WHERE --log-each-select true)",
+      "Bash(tee logs/json_coverage_test/where_test.log)",
+      "Bash(tee logs/json_coverage_test/eet_test.log)",
+      "Bash(tee logs/json_coverage_test/eet_full_test.log)",
+      "Bash(tee logs/json_coverage_test/norec_test.log)",
+      "Bash(mvn compile:*)",
+      "Bash(grep -E \"->|->>|#>|#>>|@>|<@|json_typeof|jsonb_typeof|json_array|jsonb_array|jsonb_pretty|jsonb_object_keys\" logs/postgres/where_2026_0414_2029/*.log)",
+      "Bash(grep -E \"\\\\->|\\\\->\\\\>|#\\\\>|#\\\\>\\\\>|@\\\\>|<\\\\@\" logs/postgres/where_2026_0414_2029/*.log)",
+      "Bash(grep -E \"json_typeof|jsonb_typeof|json_array_length|jsonb_array_length|jsonb_pretty|json_object_keys|jsonb_object_keys\" logs/postgres/where_2026_0414_2029/*.log)",
+      "Bash(grep -E \"jsonb_pretty|json_typeof|jsonb_typeof|jsonb_array_length\" logs/postgres/where_2026_0414_2029/*.log)",
+      "Bash(cat logs/postgres/where_2026_0414_2029/*.log)"
+    ]
+  }
+}
