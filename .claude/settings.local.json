@@ -49,7 +49,11 @@
       "Bash(tee logs/postgres/oracle_verification_2026_0415/coddtest.log)",
       "Bash(tee logs/postgres/oracle_verification_2026_0415/pqs.log)",
       "Bash(tee logs/postgres/oracle_verification_2026_0415/fuzzer.log)",
-      "Bash(wc -l docs/*.md)"
+      "Bash(wc -l docs/*.md)",
+      "Bash(unzip -l sqlancer-2.0.0.jar)",
+      "Bash(PGPASSWORD=\"Taurus@123\" psql *)",
+      "Bash(psql -h localhost -p 5432 -U tpcc -d tpcc -t -A -c ' *)",
+      "Read(//tmp/**)"
     ]
   }
 }

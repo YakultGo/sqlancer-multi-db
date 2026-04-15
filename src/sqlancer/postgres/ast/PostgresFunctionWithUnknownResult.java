@@ -84,7 +84,7 @@ public enum PostgresFunctionWithUnknownResult {
     STRPOS("strpos", PostgresDataType.INT, PostgresDataType.TEXT, PostgresDataType.TEXT),
     SUBSTR("substr", PostgresDataType.TEXT, PostgresDataType.TEXT, PostgresDataType.INT, PostgresDataType.INT),
     TO_ASCII("to_ascii", PostgresDataType.TEXT, PostgresDataType.TEXT),
-    TO_HEX("to_hex", PostgresDataType.INT, PostgresDataType.TEXT),
+    TO_HEX("to_hex", PostgresDataType.TEXT, PostgresDataType.INT),
     TRANSLATE("translate", PostgresDataType.TEXT, PostgresDataType.TEXT, PostgresDataType.TEXT, PostgresDataType.TEXT),
     // mathematical functions
     // https://www.postgresql.org/docs/13/functions-math.html

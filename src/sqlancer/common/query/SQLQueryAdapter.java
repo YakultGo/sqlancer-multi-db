@@ -29,12 +29,16 @@ public class SQLQueryAdapter extends Query<SQLConnection> implements Serializabl
             "22015",
             // Data exception: invalid argument for various functions
             "2201E", "2201F", "2201G", "2201H", "2201I", "2201J", "2201K", "2201L", "2201M", "2201N",
-            // Data exception: datetime field overflow / invalid time format
-            "22008", "22009",
+            // Data exception: substring error (negative substring length/position)
+            "22011",
+            // Data exception: invalid regular expression
+            "2201B",
+            // Data exception: datetime field overflow / invalid time format / invalid datetime format
+            "22008", "22009", "22007",
             // Data exception: invalid escape character / escape sequence
             "22019", "22025",
-            // Data exception: character not in repertoire / invalid character value
-            "22021", "2202B",
+            // Data exception: character not in repertoire / invalid character value / null character
+            "22021", "2202B", "2200C", "2200D",
             // Data exception: string data length mismatch / right truncation
             "22026", "22001",
             // Data exception: invalid indicator parameter value
@@ -51,18 +55,32 @@ public class SQLQueryAdapter extends Query<SQLConnection> implements Serializabl
             "22P04", "22P05",
             // Data exception: invalid XML / XML comment
             "2200N", "2200S", "2200T",
+            // Data exception: invalid subscript / subscript out of bounds
+            "2202H", "2202F", "2202E",
+            // Data exception: invalid parameter value
+            "22023",
             // Undefined function/operator
             "42883",
+            // Ambiguous function/operator (function/operator is not unique)
+            "42725",
+            // Indeterminate data type (e.g., avg(unknown) is not unique)
+            "42P18",
             // Cannot coerce
             "42846",
             // Datatype mismatch (ALTER TABLE type conversion, etc.)
             "42804",
             // Undefined object (e.g., operator class / parameter / type)
             "42704",
+            // Undefined column
+            "42703",
+            // Wrong object type (e.g., typed table operations on non-typed table)
+            "42809",
             // Syntax error
             "42601",
             // Undefined table
             "42P01",
+            // Duplicate table/index (relation already exists)
+            "42P07",
             // Invalid column reference / constraint does not exist (ON CONFLICT errors)
             "42P10",
             // Unique violation
@@ -73,8 +91,14 @@ public class SQLQueryAdapter extends Query<SQLConnection> implements Serializabl
             "23514",
             // Feature not supported
             "0A000",
-            // Collation mismatch / ambiguous collation
-            "42P22", "42P09");
+            // Collation mismatch / ambiguous collation / incompatible collations
+            "42P22", "42P09", "42P21",
+            // Invalid object definition (e.g., index with non-IMMUTABLE function)
+            "42P16",
+            // Invalid function definition
+            "42P17",
+            // Grouping error - column must appear in GROUP BY or be used in aggregate
+            "42803");
 
     private final String query;
     private final ExpectedErrors expectedErrors;

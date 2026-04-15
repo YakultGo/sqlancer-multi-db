@@ -143,6 +143,8 @@ public final class PostgresCommon {
         errors.add("cannot use \"S\" and \"PL\" together");
         errors.add("cannot use \"PR\" and \"S\"/\"PL\"/\"MI\"/\"SG\" together");
         errors.add("is not a number");
+        // Interval format errors
+        errors.add("invalid format specification for an interval value");
 
         return errors;
     }
@@ -168,6 +170,8 @@ public final class PostgresCommon {
         errors.add("cannot take logarithm of zero");
         errors.add("requested character too large for encoding"); // chr
         errors.add("null character not permitted"); // chr
+        errors.add("cannot use null character"); // chr - localized error variant
+        errors.add("不能使用空字符"); // chr - Chinese localized error message
         errors.add("requested character not valid for encoding"); // chr
         errors.add("requested length too large"); // repeat
         errors.add("invalid memory alloc request size"); // repeat
