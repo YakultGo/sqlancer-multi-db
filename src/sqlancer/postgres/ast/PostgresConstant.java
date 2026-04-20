@@ -13,9 +13,12 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 
 import sqlancer.IgnoreMeException;
 import sqlancer.postgres.PostgresCompoundDataType;
+import sqlancer.postgres.PostgresProvider;
 import sqlancer.postgres.ast.PostgresTemporalUtil.IntervalValue;
 import sqlancer.postgres.PostgresSchema.PostgresDataType;
 import org.postgresql.util.PGInterval;
@@ -161,10 +164,15 @@ public abstract class PostgresConstant implements PostgresExpression {
                 return cast(PostgresDataType.INT).isEquals(rightVal.cast(PostgresDataType.INT));
             } else if (rightVal.isBoolean()) {
                 return cast(PostgresDataType.BOOLEAN).isEquals(rightVal.cast(PostgresDataType.BOOLEAN));
+            } else if (rightVal.getExpressionType() == PostgresDataType.UUID) {
+                return cast(PostgresDataType.UUID).isEquals(rightVal);
+            } else if (rightVal.getExpressionType() == PostgresDataType.BYTEA
+                    || rightVal.getExpressionType() == PostgresDataType.ENUM) {
+                return rightVal.isEquals(this);
             } else if (rightVal.isString()) {
                 return PostgresConstant.createBooleanConstant(value.contentEquals(rightVal.asString()));
             } else {
-                throw new AssertionError(rightVal);
+                return null;
             }
         }
 
@@ -176,10 +184,19 @@ public abstract class PostgresConstant implements PostgresExpression {
                 return cast(PostgresDataType.INT).isLessThan(rightVal.cast(PostgresDataType.INT));
             } else if (rightVal.isBoolean()) {
                 return cast(PostgresDataType.BOOLEAN).isLessThan(rightVal.cast(PostgresDataType.BOOLEAN));
+            } else if (rightVal.getExpressionType() == PostgresDataType.UUID) {
+                return cast(PostgresDataType.UUID).isLessThan(rightVal);
+            } else if (rightVal.getExpressionType() == PostgresDataType.BYTEA
+                    || rightVal.getExpressionType() == PostgresDataType.ENUM) {
+                PostgresConstant casted = rightVal.cast(PostgresDataType.TEXT);
+                if (casted == null) {
+                    return null;
+                }
+                return isLessThan(casted);
             } else if (rightVal.isString()) {
                 return PostgresConstant.createBooleanConstant(value.compareTo(rightVal.asString()) < 0);
             } else {
-                throw new AssertionError(rightVal);
+                return null;
             }
         }
 
@@ -238,6 +255,12 @@ public abstract class PostgresConstant implements PostgresExpression {
                 return PostgresConstant.createTimestampWithTimeZoneConstant(s);
             case INTERVAL:
                 return PostgresConstant.createIntervalConstant(s);
+            case UUID:
+                try {
+                    return PostgresConstant.createUUIDConstant(UUID.fromString(s).toString());
+                } catch (IllegalArgumentException e) {
+                    return null;
+                }
             default:
                 return null;
             }
@@ -301,10 +324,16 @@ public abstract class PostgresConstant implements PostgresExpression {
                 return cast(PostgresDataType.BOOLEAN).isEquals(rightVal);
             } else if (rightVal.isInt()) {
                 return PostgresConstant.createBooleanConstant(val == rightVal.asInt());
+            } else if (PostgresConstant.isNumericConstant(rightVal)) {
+                BigDecimal rightNumeric = PostgresConstant.getNumericValue(rightVal);
+                if (rightNumeric == null) {
+                    return null;
+                }
+                return PostgresConstant.createBooleanConstant(BigDecimal.valueOf(val).compareTo(rightNumeric) == 0);
             } else if (rightVal.isString()) {
                 return PostgresConstant.createBooleanConstant(val == rightVal.cast(PostgresDataType.INT).asInt());
             } else {
-                throw new AssertionError(rightVal);
+                return null;
             }
         }
 
@@ -314,12 +343,18 @@ public abstract class PostgresConstant implements PostgresExpression {
                 return PostgresConstant.createNullConstant();
             } else if (rightVal.isInt()) {
                 return PostgresConstant.createBooleanConstant(val < rightVal.asInt());
+            } else if (PostgresConstant.isNumericConstant(rightVal)) {
+                BigDecimal rightNumeric = PostgresConstant.getNumericValue(rightVal);
+                if (rightNumeric == null) {
+                    return null;
+                }
+                return PostgresConstant.createBooleanConstant(BigDecimal.valueOf(val).compareTo(rightNumeric) < 0);
             } else if (rightVal.isBoolean()) {
                 throw new AssertionError(rightVal);
             } else if (rightVal.isString()) {
                 return PostgresConstant.createBooleanConstant(val < rightVal.cast(PostgresDataType.INT).asInt());
             } else {
-                throw new IgnoreMeException();
+                return null;
             }
 
         }
@@ -572,6 +607,11 @@ public abstract class PostgresConstant implements PostgresExpression {
         }
 
         @Override
+        public String getUnquotedTextRepresentation() {
+            return String.valueOf(val);
+        }
+
+        @Override
         public PostgresDataType getExpressionType() {
             return PostgresDataType.DECIMAL;
         }
@@ -616,6 +656,11 @@ public abstract class PostgresConstant implements PostgresExpression {
         }
 
         @Override
+        public String getUnquotedTextRepresentation() {
+            return String.valueOf(val);
+        }
+
+        @Override
         public PostgresDataType getExpressionType() {
             return PostgresDataType.FLOAT;
         }
@@ -637,6 +682,11 @@ public abstract class PostgresConstant implements PostgresExpression {
             } else {
                 return "'" + val + "'";
             }
+        }
+
+        @Override
+        public String getUnquotedTextRepresentation() {
+            return String.valueOf(val);
         }
 
         @Override
@@ -744,10 +794,10 @@ public abstract class PostgresConstant implements PostgresExpression {
     }
 
     public static class UUIDConstant extends PostgresConstantBase {
-        private final String uuid;
+        private final UUID uuid;
 
         public UUIDConstant(String uuid) {
-            this.uuid = uuid;
+            this.uuid = UUID.fromString(uuid);
         }
 
         @Override
@@ -759,6 +809,58 @@ public abstract class PostgresConstant implements PostgresExpression {
         @Override
         public PostgresDataType getExpressionType() {
             return PostgresDataType.UUID;
+        }
+
+        @Override
+        public String getUnquotedTextRepresentation() {
+            return uuid.toString();
+        }
+
+        @Override
+        public PostgresConstant isEquals(PostgresConstant rightVal) {
+            if (rightVal.isNull()) {
+                return PostgresConstant.createNullConstant();
+            } else if (rightVal.getExpressionType() == PostgresDataType.UUID) {
+                return PostgresConstant.createBooleanConstant(uuid.equals(UUID.fromString(rightVal.getUnquotedTextRepresentation())));
+            } else if (rightVal.isString()) {
+                PostgresConstant casted = rightVal.cast(PostgresDataType.UUID);
+                if (casted == null) {
+                    throw new IgnoreMeException();
+                }
+                return isEquals(casted);
+            } else {
+                throw new IgnoreMeException();
+            }
+        }
+
+        @Override
+        protected PostgresConstant isLessThan(PostgresConstant rightVal) {
+            if (rightVal.isNull()) {
+                return PostgresConstant.createNullConstant();
+            } else if (rightVal.getExpressionType() == PostgresDataType.UUID) {
+                return PostgresConstant
+                        .createBooleanConstant(uuid.compareTo(UUID.fromString(rightVal.getUnquotedTextRepresentation())) < 0);
+            } else if (rightVal.isString()) {
+                PostgresConstant casted = rightVal.cast(PostgresDataType.UUID);
+                if (casted == null) {
+                    throw new IgnoreMeException();
+                }
+                return isLessThan(casted);
+            } else {
+                throw new IgnoreMeException();
+            }
+        }
+
+        @Override
+        public PostgresConstant cast(PostgresDataType type) {
+            switch (type) {
+            case UUID:
+                return this;
+            case TEXT:
+                return PostgresConstant.createTextConstant(uuid.toString());
+            default:
+                return null;
+            }
         }
     }
 
@@ -777,8 +879,71 @@ public abstract class PostgresConstant implements PostgresExpression {
         }
 
         @Override
+        public String getUnquotedTextRepresentation() {
+            return label;
+        }
+
+        @Override
         public PostgresDataType getExpressionType() {
             return PostgresDataType.ENUM;
+        }
+
+        @Override
+        public PostgresConstant isEquals(PostgresConstant rightVal) {
+            if (rightVal.isNull()) {
+                return PostgresConstant.createNullConstant();
+            }
+            if (rightVal instanceof EnumConstant && rightVal.getExpressionType() == PostgresDataType.ENUM) {
+                EnumConstant other = (EnumConstant) rightVal;
+                if (!typeName.equals(other.typeName)) {
+                    return null;
+                }
+                return PostgresConstant.createBooleanConstant(label.equals(other.label));
+            }
+            if (rightVal.isString()) {
+                return PostgresConstant.createBooleanConstant(label.equals(rightVal.asString()));
+            }
+            return null;
+        }
+
+        @Override
+        protected PostgresConstant isLessThan(PostgresConstant rightVal) {
+            if (rightVal.isNull()) {
+                return PostgresConstant.createNullConstant();
+            }
+            if (rightVal instanceof EnumConstant && rightVal.getExpressionType() == PostgresDataType.ENUM) {
+                EnumConstant other = (EnumConstant) rightVal;
+                if (!typeName.equals(other.typeName)) {
+                    return null;
+                }
+                int thisIndex = PostgresProvider.getEnumLabelIndex(typeName, label);
+                int otherIndex = PostgresProvider.getEnumLabelIndex(other.typeName, other.label);
+                if (thisIndex == -1 || otherIndex == -1) {
+                    return null;
+                }
+                return PostgresConstant.createBooleanConstant(thisIndex < otherIndex);
+            }
+            if (rightVal.isString()) {
+                int thisIndex = PostgresProvider.getEnumLabelIndex(typeName, label);
+                int otherIndex = PostgresProvider.getEnumLabelIndex(typeName, rightVal.asString());
+                if (thisIndex == -1 || otherIndex == -1) {
+                    return null;
+                }
+                return PostgresConstant.createBooleanConstant(thisIndex < otherIndex);
+            }
+            return null;
+        }
+
+        @Override
+        public PostgresConstant cast(PostgresDataType type) {
+            switch (type) {
+            case ENUM:
+                return this;
+            case TEXT:
+                return PostgresConstant.createTextConstant(label);
+            default:
+                return null;
+            }
         }
     }
 
@@ -888,7 +1053,7 @@ public abstract class PostgresConstant implements PostgresExpression {
         private final String hex;
 
         public ByteaConstant(String hex) {
-            this.hex = hex;
+            this.hex = hex.toLowerCase(Locale.ROOT);
         }
 
         @Override
@@ -898,8 +1063,54 @@ public abstract class PostgresConstant implements PostgresExpression {
         }
 
         @Override
+        public String getUnquotedTextRepresentation() {
+            return "\\x" + hex;
+        }
+
+        @Override
         public PostgresDataType getExpressionType() {
             return PostgresDataType.BYTEA;
+        }
+
+        @Override
+        public PostgresConstant isEquals(PostgresConstant rightVal) {
+            if (rightVal.isNull()) {
+                return PostgresConstant.createNullConstant();
+            }
+            if (rightVal instanceof ByteaConstant && rightVal.getExpressionType() == PostgresDataType.BYTEA) {
+                return PostgresConstant.createBooleanConstant(hex.equals(((ByteaConstant) rightVal).hex));
+            }
+            if (rightVal.isString()) {
+                return PostgresConstant.createBooleanConstant(getUnquotedTextRepresentation().equals(rightVal.asString()));
+            }
+            return null;
+        }
+
+        @Override
+        protected PostgresConstant isLessThan(PostgresConstant rightVal) {
+            if (rightVal.isNull()) {
+                return PostgresConstant.createNullConstant();
+            }
+            if (rightVal instanceof ByteaConstant && rightVal.getExpressionType() == PostgresDataType.BYTEA) {
+                return PostgresConstant.createBooleanConstant(hex.compareTo(((ByteaConstant) rightVal).hex) < 0);
+            }
+            if (rightVal.isString()) {
+                return PostgresConstant
+                        .createBooleanConstant(getUnquotedTextRepresentation().compareTo(rightVal.asString()) < 0);
+            }
+            return null;
+        }
+
+        @Override
+        public PostgresConstant cast(PostgresDataType type) {
+            switch (type) {
+            case BYTEA:
+                return this;
+            case TEXT:
+                return PostgresConstant.createTextConstant(getUnquotedTextRepresentation());
+            default:
+                return null;
+            }
         }
     }
 
@@ -1344,6 +1555,31 @@ public abstract class PostgresConstant implements PostgresExpression {
                 return PostgresConstant.createBooleanConstant(seconds < ((IntervalConstant) rightVal).seconds);
             }
             throw new IgnoreMeException();
+        }
+    }
+
+    private static boolean isNumericConstant(PostgresConstant constant) {
+        if (constant == null || constant.isInt()) {
+            return false;
+        }
+        PostgresDataType type = constant.getExpressionType();
+        return type == PostgresDataType.DECIMAL || type == PostgresDataType.FLOAT || type == PostgresDataType.REAL;
+    }
+
+    private static BigDecimal getNumericValue(PostgresConstant constant) {
+        if (constant == null) {
+            return null;
+        }
+        if (constant.isInt()) {
+            return BigDecimal.valueOf(constant.asInt());
+        }
+        if (!isNumericConstant(constant)) {
+            return null;
+        }
+        try {
+            return new BigDecimal(constant.getUnquotedTextRepresentation());
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

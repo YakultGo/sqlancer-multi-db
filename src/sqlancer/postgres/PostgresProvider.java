@@ -60,6 +60,7 @@ import sqlancer.postgres.gen.PostgresViewGenerator;
 @AutoService(DatabaseProvider.class)
 public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, PostgresOptions> {
 
+    private static final Object ENUM_TYPES_LOCK = new Object();
     private static final List<String> enumTypeNames = new ArrayList<>();
     private static final Map<String, List<String>> enumTypeLabels = new HashMap<>();
 
@@ -367,15 +368,19 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
     }
 
     private static void createEnumTypes(PostgresGlobalState globalState) throws Exception {
-        enumTypeNames.clear();
-        enumTypeLabels.clear();
+        synchronized (ENUM_TYPES_LOCK) {
+            enumTypeNames.clear();
+            enumTypeLabels.clear();
+        }
 
         int count = Randomly.fromOptions(1, 2);
         for (int i = 0; i < count; i++) {
             String typeName = "e" + i;
             List<String> labels = Arrays.asList("a", "b", "c", "d");
-            enumTypeNames.add(typeName);
-            enumTypeLabels.put(typeName, labels);
+            synchronized (ENUM_TYPES_LOCK) {
+                enumTypeNames.add(typeName);
+                enumTypeLabels.put(typeName, labels);
+            }
 
             StringBuilder sb = new StringBuilder();
             sb.append("CREATE TYPE ");
@@ -395,26 +400,45 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
     }
 
     public static List<String> getEnumTypeNames() {
-        return enumTypeNames;
+        synchronized (ENUM_TYPES_LOCK) {
+            return new ArrayList<>(enumTypeNames);
+        }
     }
 
     public static String getRandomEnumTypeName() {
-        if (enumTypeNames.isEmpty()) {
-            // Defensive fallback; should not happen after createEnumTypes ran.
-            return "text";
+        synchronized (ENUM_TYPES_LOCK) {
+            if (enumTypeNames.isEmpty()) {
+                // Defensive fallback; should not happen after createEnumTypes ran.
+                return "text";
+            }
+            return Randomly.fromList(enumTypeNames);
         }
-        return Randomly.fromList(enumTypeNames);
     }
 
     public static String getRandomEnumLabel(String type, Randomly r) {
         if (type == null) {
             return r.getString();
         }
-        List<String> labels = enumTypeLabels.get(type);
-        if (labels == null || labels.isEmpty()) {
-            return r.getString();
+        synchronized (ENUM_TYPES_LOCK) {
+            List<String> labels = enumTypeLabels.get(type);
+            if (labels == null || labels.isEmpty()) {
+                return r.getString();
+            }
+            return Randomly.fromList(labels);
         }
-        return Randomly.fromList(labels);
+    }
+
+    public static int getEnumLabelIndex(String type, String label) {
+        if (type == null || label == null) {
+            return -1;
+        }
+        synchronized (ENUM_TYPES_LOCK) {
+            List<String> labels = enumTypeLabels.get(type);
+            if (labels == null) {
+                return -1;
+            }
+            return labels.indexOf(label);
+        }
     }
 
     protected void createTables(PostgresGlobalState globalState, int numTables) throws Exception {

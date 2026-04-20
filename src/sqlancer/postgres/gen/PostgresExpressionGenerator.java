@@ -69,6 +69,7 @@ import sqlancer.postgres.ast.PostgresPostfixText;
 import sqlancer.postgres.ast.PostgresPrefixOperation;
 import sqlancer.postgres.ast.PostgresPrefixOperation.PrefixOperator;
 import sqlancer.postgres.ast.PostgresSelect;
+import sqlancer.postgres.ast.PostgresSelect.LockingClauseContext;
 import sqlancer.postgres.ast.PostgresSelect.PostgresFromTable;
 import sqlancer.postgres.ast.PostgresSelect.PostgresSubquery;
 import sqlancer.postgres.ast.PostgresSelect.SelectType;
@@ -102,6 +103,8 @@ public class PostgresExpressionGenerator implements ExpressionGenerator<Postgres
     private PostgresGlobalState globalState;
 
     private boolean allowAggregateFunctions;
+
+    private LockingClauseContext lockingClauseContext = LockingClauseContext.DIRECT_SELECT;
 
     private final Map<String, Character> functionsAndTypes;
 
@@ -1154,8 +1157,13 @@ public class PostgresExpressionGenerator implements ExpressionGenerator<Postgres
         return this;
     }
 
+    public PostgresExpressionGenerator setLockingClauseContext(LockingClauseContext lockingClauseContext) {
+        this.lockingClauseContext = lockingClauseContext;
+        return this;
+    }
+
     public static PostgresSubquery createSubquery(PostgresGlobalState globalState, String name, PostgresTables tables) {
-        return createSubquery(globalState, name, tables, true);
+        return createSubquery(globalState, name, tables, LockingClauseContext.STRUCTURAL);
     }
 
     public static List<String> getLockableTableRefs(PostgresSelect select) {
@@ -1171,7 +1179,7 @@ public class PostgresExpressionGenerator implements ExpressionGenerator<Postgres
     }
 
     public static PostgresSubquery createSubquery(PostgresGlobalState globalState, String name, PostgresTables tables,
-            boolean allowForClauses) {
+            LockingClauseContext lockingClauseContext) {
         List<PostgresExpression> columns = new ArrayList<>();
         PostgresExpressionGenerator gen = new PostgresExpressionGenerator(globalState).setColumns(tables.getColumns());
         for (int i = 0; i < Randomly.smallNumber() + 1; i++) {
@@ -1194,7 +1202,7 @@ public class PostgresExpressionGenerator implements ExpressionGenerator<Postgres
                         PostgresConstant.createIntConstant(Randomly.getPositiveOrZeroNonCachedInteger()));
             }
         }
-        select.maybeSetRandomForClause(allowForClauses);
+        select.configureForClause(lockingClauseContext);
         return new PostgresSubquery(select, name);
     }
 
@@ -1228,6 +1236,10 @@ public class PostgresExpressionGenerator implements ExpressionGenerator<Postgres
 
     @Override
     public PostgresSelect generateSelect() {
+        return generateSelect(lockingClauseContext);
+    }
+
+    public PostgresSelect generateSelect(LockingClauseContext lockingClauseContext) {
         PostgresSelect select = new PostgresSelect();
 
         if (Randomly.getBooleanWithRatherLowProbability()) {
@@ -1235,7 +1247,7 @@ public class PostgresExpressionGenerator implements ExpressionGenerator<Postgres
             select.setWindowFunctions(windowFunctions);
         }
 
-        select.maybeSetRandomForClause(true);
+        select.configureForClause(lockingClauseContext);
 
         return select;
     }
@@ -1264,7 +1276,8 @@ public class PostgresExpressionGenerator implements ExpressionGenerator<Postgres
         // JOIN subqueries
         for (int i = 0; i < Randomly.smallNumber(); i++) {
             PostgresTables subqueryTables = globalState.getSchema().getRandomTableNonEmptyTables();
-            PostgresSubquery subquery = createSubquery(globalState, String.format("sub%d", i), subqueryTables);
+            PostgresSubquery subquery = createSubquery(globalState, String.format("sub%d", i), subqueryTables,
+                    LockingClauseContext.STRUCTURAL);
             PostgresExpression joinClause = generateExpression(PostgresDataType.BOOLEAN);
             PostgresJoinType options = PostgresJoinType.getRandom();
             PostgresJoin j = new PostgresJoin(subquery, joinClause, options);

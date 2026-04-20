@@ -68,6 +68,23 @@ public class PostgresSelect extends SelectBase<PostgresExpression>
         }
     }
 
+    public enum LockingClauseContext {
+        DIRECT_SELECT(true),
+        STRUCTURAL(false),
+        EXPLAIN_PLAN(false),
+        ORACLE_SCALAR(false);
+
+        private final boolean allowsForClause;
+
+        LockingClauseContext(boolean allowsForClause) {
+            this.allowsForClause = allowsForClause;
+        }
+
+        public boolean allowsForClause() {
+            return allowsForClause;
+        }
+    }
+
     public static class WindowDefinition {
         private final List<PostgresExpression> partitionBy;
         private final List<PostgresOrderByTerm> orderBy;
@@ -243,6 +260,22 @@ public class PostgresSelect extends SelectBase<PostgresExpression>
         setForClause(ForClause.getRandom());
         setLockWaitOption(LockWaitOption.getRandom());
         maybeSetForClauseOfReferences(lockableRefs);
+    }
+
+    public void configureForClause(LockingClauseContext context) {
+        configureForClause(context, List.of());
+    }
+
+    public void configureForClause(LockingClauseContext context, List<String> lockableRefs) {
+        if (!context.allowsForClause()) {
+            allowForClause = false;
+            forClause = null;
+            lockWaitOption = LockWaitOption.NONE;
+            forClauseOfReferences = Collections.emptyList();
+            return;
+        }
+        allowForClause = true;
+        maybeSetRandomForClause(true, lockableRefs);
     }
 
     public void maybeSetForClauseOfReferences(List<String> lockableRefs) {

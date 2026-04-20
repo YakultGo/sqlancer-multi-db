@@ -364,11 +364,7 @@ public final class PostgresCommon {
             throw new AssertionError(compoundType);
         case ENUM:
             // Use a created enum type name; if none exist, fall back to text for stability.
-            if (PostgresProvider.getEnumTypeNames().isEmpty()) {
-                sb.append("text");
-            } else {
-                sb.append(Randomly.fromList(PostgresProvider.getEnumTypeNames()));
-            }
+            sb.append(PostgresProvider.getRandomEnumTypeName());
             break;
         default:
             throw new AssertionError(compoundType);

@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.67 | 2026-04-20
+- 优化 PostgreSQL 查询加锁策略：删除冗余的 `WHERE` oracle 别名，仅保留 `TLP_WHERE`；将原先基于 oracle 名称的 `FOR ...` 锁子句过滤改为统一的查询形状/执行上下文判定，避免在 `NOREC`、`CERT`、`EET` 等不适合的路径上错误注入行锁，同时保留直接查询路径上的锁覆盖能力
+- 修复日志目录按分钟切分问题：单次 SQLancer 运行内复用同一个 run 目录，不再因跨分钟新建日志文件夹，确保一次运行的全部数据库日志落到同一目录；同步更新 `--log-dir` 说明与相关回归测试
+
 ## v0.1.66 | 2026-04-18
 - 新增 SQLancer PostgreSQL 代码线收敛：将 `sqlancer-pg` 自 `e0d924b6...` 之后的 PostgreSQL 增强按 `sqlancer-multi-db` 架构手工回合，保留本仓库既有 oracle 体系（含 `DISTINCT/GROUP_BY/DQP/DQE/EET/CODDTEST`）不回退，并逐步替代独立的 `sqlancer-pg` 项目作为唯一 PostgreSQL 主线
 - 优化 PostgreSQL 参数归属：将 pg 专属配置从全局层收口到 `PostgresOptions`，新增 `--pg-table-columns`、`--pg-generate-sql-num`、`--pg-index-model`（整型模式值）并接通 `PostgresTableGenerator` / `PostgresInsertGenerator` / `PostgresIndexGenerator`；移除旧的按类型开关式参数（如 `--enable-time-types`、`--enable-json`、`--enable-newtypes-in-dqe-dqp-eet`），改为由当前 PostgreSQL 生成器默认覆盖

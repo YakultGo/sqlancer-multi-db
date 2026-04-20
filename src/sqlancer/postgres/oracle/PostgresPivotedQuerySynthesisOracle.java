@@ -22,6 +22,7 @@ import sqlancer.postgres.ast.PostgresExpression;
 import sqlancer.postgres.ast.PostgresPostfixOperation;
 import sqlancer.postgres.ast.PostgresPostfixOperation.PostfixOperator;
 import sqlancer.postgres.ast.PostgresSelect;
+import sqlancer.postgres.ast.PostgresSelect.LockingClauseContext;
 import sqlancer.postgres.ast.PostgresSelect.PostgresFromTable;
 import sqlancer.postgres.gen.PostgresCommon;
 import sqlancer.postgres.gen.PostgresExpressionGenerator;
@@ -65,7 +66,8 @@ public class PostgresPivotedQuerySynthesisOracle
         List<PostgresExpression> orderBy = new PostgresExpressionGenerator(globalState).setColumns(columns)
                 .generateOrderBys();
         selectStatement.setOrderByClauses(orderBy);
-        selectStatement.maybeSetRandomForClause(true, PostgresExpressionGenerator.getLockableTableRefs(selectStatement));
+        selectStatement.configureForClause(LockingClauseContext.DIRECT_SELECT,
+                PostgresExpressionGenerator.getLockableTableRefs(selectStatement));
         return new SQLQueryAdapter(PostgresVisitor.asString(selectStatement));
     }
 

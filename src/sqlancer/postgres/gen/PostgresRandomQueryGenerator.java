@@ -11,6 +11,7 @@ import sqlancer.postgres.PostgresSchema.PostgresTables;
 import sqlancer.postgres.ast.PostgresConstant;
 import sqlancer.postgres.ast.PostgresExpression;
 import sqlancer.postgres.ast.PostgresSelect;
+import sqlancer.postgres.ast.PostgresSelect.LockingClauseContext;
 import sqlancer.postgres.ast.PostgresSelect.PostgresFromTable;
 import sqlancer.postgres.ast.PostgresSelect.SelectType;
 
@@ -53,7 +54,8 @@ public final class PostgresRandomQueryGenerator {
                         PostgresConstant.createIntConstant(Randomly.getPositiveOrZeroNonCachedInteger()));
             }
         }
-        select.maybeSetRandomForClause(true, PostgresExpressionGenerator.getLockableTableRefs(select));
+        select.configureForClause(LockingClauseContext.DIRECT_SELECT,
+                PostgresExpressionGenerator.getLockableTableRefs(select));
         return select;
     }
 
