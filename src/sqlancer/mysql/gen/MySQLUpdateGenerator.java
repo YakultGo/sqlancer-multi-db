@@ -3,6 +3,7 @@ package sqlancer.mysql.gen;
 import java.sql.SQLException;
 import java.util.List;
 
+import sqlancer.IgnoreMeException;
 import sqlancer.Randomly;
 import sqlancer.common.gen.AbstractUpdateGenerator;
 import sqlancer.common.query.SQLQueryAdapter;
@@ -29,6 +30,9 @@ public class MySQLUpdateGenerator extends AbstractUpdateGenerator<MySQLColumn> {
 
     private SQLQueryAdapter generate() throws SQLException {
         MySQLTable table = globalState.getSchema().getRandomTable(t -> !t.isView());
+        if (table == null) {
+            throw new IgnoreMeException();
+        }
         List<MySQLColumn> columns = table.getRandomNonEmptyColumnSubset();
         gen = new MySQLExpressionGenerator(globalState).setColumns(table.getColumns());
         sb.append("UPDATE ");

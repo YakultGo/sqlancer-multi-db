@@ -145,6 +145,243 @@ public class MySQLComputableFunction implements MySQLExpression {
             public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
                 return aggregate(evaluatedArgs, (max, cur) -> cur.isLessThan(max).asBooleanNotNull() ? max : cur);
             }
+        },
+        // ========== 数学函数 ==========
+        ABS(1, "ABS") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                long val = arg.castAs(CastType.SIGNED).getInt();
+                return MySQLConstant.createIntConstant(Math.abs(val));
+            }
+        },
+        CEIL(1, "CEIL") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                // 对于整数类型，CEIL 返回原值
+                if (arg.isInt()) {
+                    return arg;
+                }
+                // 对于字符串，尝试转换为数值后向上取整
+                try {
+                    String str = arg.castAsString();
+                    double val = Double.parseDouble(str);
+                    return MySQLConstant.createIntConstant((long) Math.ceil(val));
+                } catch (NumberFormatException e) {
+                    throw new IgnoreMeException();
+                }
+            }
+        },
+        FLOOR(1, "FLOOR") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                if (arg.isInt()) {
+                    return arg;
+                }
+                try {
+                    String str = arg.castAsString();
+                    double val = Double.parseDouble(str);
+                    return MySQLConstant.createIntConstant((long) Math.floor(val));
+                } catch (NumberFormatException e) {
+                    throw new IgnoreMeException();
+                }
+            }
+        },
+        ROUND(1, "ROUND") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                long val = arg.castAs(CastType.SIGNED).getInt();
+                return MySQLConstant.createIntConstant(val);
+            }
+        },
+        MOD(2, "MOD") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg1 = evaluatedArgs[0];
+                MySQLConstant arg2 = evaluatedArgs[1];
+                if (arg1.isNull() || arg2.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                long val1 = arg1.castAs(CastType.SIGNED).getInt();
+                long val2 = arg2.castAs(CastType.SIGNED).getInt();
+                if (val2 == 0) {
+                    return MySQLConstant.createNullConstant();  // 除数为 0 返回 NULL
+                }
+                return MySQLConstant.createIntConstant(val1 % val2);
+            }
+        },
+        SIGN(1, "SIGN") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                long val = arg.castAs(CastType.SIGNED).getInt();
+                if (val < 0) return MySQLConstant.createIntConstant(-1);
+                if (val == 0) return MySQLConstant.createIntConstant(0);
+                return MySQLConstant.createIntConstant(1);
+            }
+        },
+        // ========== 字符串函数 ==========
+        CONCAT(2, "CONCAT", true) {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                StringBuilder sb = new StringBuilder();
+                for (MySQLConstant arg : evaluatedArgs) {
+                    if (arg.isNull()) {
+                        return MySQLConstant.createNullConstant();  // CONCAT 中任意 NULL 返回 NULL
+                    }
+                    sb.append(arg.castAsString());
+                }
+                return MySQLConstant.createStringConstant(sb.toString());
+            }
+        },
+        LENGTH(1, "LENGTH") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                String str = arg.castAsString();
+                return MySQLConstant.createIntConstant(str.length());
+            }
+        },
+        UPPER(1, "UPPER") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                return MySQLConstant.createStringConstant(arg.castAsString().toUpperCase());
+            }
+        },
+        LOWER(1, "LOWER") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                return MySQLConstant.createStringConstant(arg.castAsString().toLowerCase());
+            }
+        },
+        TRIM(1, "TRIM") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                return MySQLConstant.createStringConstant(arg.castAsString().trim());
+            }
+        },
+        LEFT(2, "LEFT") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant strArg = evaluatedArgs[0];
+                MySQLConstant lenArg = evaluatedArgs[1];
+                if (strArg.isNull() || lenArg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                String str = strArg.castAsString();
+                int len = (int) lenArg.castAs(CastType.SIGNED).getInt();
+                if (len < 0) {
+                    return MySQLConstant.createStringConstant("");
+                }
+                if (len > str.length()) {
+                    len = str.length();
+                }
+                return MySQLConstant.createStringConstant(str.substring(0, len));
+            }
+        },
+        RIGHT(2, "RIGHT") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant strArg = evaluatedArgs[0];
+                MySQLConstant lenArg = evaluatedArgs[1];
+                if (strArg.isNull() || lenArg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                String str = strArg.castAsString();
+                int len = (int) lenArg.castAs(CastType.SIGNED).getInt();
+                if (len < 0) {
+                    return MySQLConstant.createStringConstant("");
+                }
+                if (len > str.length()) {
+                    len = str.length();
+                }
+                return MySQLConstant.createStringConstant(str.substring(str.length() - len));
+            }
+        },
+        // ========== JSON 函数 ==========
+        JSON_TYPE(1, "JSON_TYPE") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                // 简化实现：返回 JSON 值的类型
+                String json = arg.castAsString();
+                if (json.startsWith("{")) return MySQLConstant.createStringConstant("OBJECT");
+                if (json.startsWith("[")) return MySQLConstant.createStringConstant("ARRAY");
+                if (json.equals("null")) return MySQLConstant.createStringConstant("NULL");
+                if (json.equals("true") || json.equals("false")) return MySQLConstant.createStringConstant("BOOLEAN");
+                try {
+                    Double.parseDouble(json);
+                    return MySQLConstant.createStringConstant("INTEGER");
+                } catch (NumberFormatException e) {
+                    return MySQLConstant.createStringConstant("STRING");
+                }
+            }
+        },
+        JSON_VALID(1, "JSON_VALID") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                MySQLConstant arg = evaluatedArgs[0];
+                if (arg.isNull()) {
+                    return MySQLConstant.createNullConstant();
+                }
+                // 简化实现：假设生成的 JSON 都是有效的
+                return MySQLConstant.createIntConstant(1);
+            }
+        },
+        // ========== 时间函数（返回 null，因为依赖当前时间） ==========
+        NOW(0, "NOW") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                return null;  // 无法计算期望值
+            }
+        },
+        CURDATE(0, "CURDATE") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                return null;  // 无法计算期望值
+            }
+        },
+        CURTIME(0, "CURTIME") {
+            @Override
+            public MySQLConstant apply(MySQLConstant[] evaluatedArgs, MySQLExpression... args) {
+                return null;  // 无法计算期望值
+            }
         };
 
         private String functionName;

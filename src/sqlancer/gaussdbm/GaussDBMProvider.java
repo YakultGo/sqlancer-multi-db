@@ -1,5 +1,6 @@
 package sqlancer.gaussdbm;
 
+import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -8,6 +9,7 @@ import java.util.Properties;
 import com.google.auto.service.AutoService;
 
 import sqlancer.MainOptions;
+import sqlancer.Randomly;
 import sqlancer.SQLConnection;
 import sqlancer.SQLProviderAdapter;
 import sqlancer.common.DBMSCommon;
@@ -21,18 +23,43 @@ import sqlancer.gaussdbm.gen.GaussDBMTableGenerator;
 @AutoService(sqlancer.DatabaseProvider.class)
 public class GaussDBMProvider extends SQLProviderAdapter<GaussDBMGlobalState, GaussDBMOptions> {
 
+    private static boolean driverLoaded = false;
+
     public GaussDBMProvider() {
         super(GaussDBMGlobalState.class, GaussDBMOptions.class);
     }
 
+    private static synchronized void loadDriver() {
+        if (driverLoaded) {
+            return;
+        }
+        // Try to load openGauss driver first (recommended for GaussDB)
+        try {
+            Class.forName("org.opengauss.Driver");
+            System.err.println("[INFO] Loaded openGauss JDBC driver (org.opengauss.Driver)");
+            driverLoaded = true;
+            return;
+        } catch (ClassNotFoundException e) {
+            System.err.println("[INFO] openGauss driver not found, trying MySQL driver...");
+        }
+        // Fallback to MySQL driver for M-compatibility mode
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            System.err.println("[INFO] Loaded MySQL JDBC driver (com.mysql.cj.jdbc.Driver)");
+            driverLoaded = true;
+        } catch (ClassNotFoundException e) {
+            throw new AssertionError("No JDBC driver available. Please ensure opengauss-jdbc or mysql driver is in classpath.", e);
+        }
+    }
+
     @Override
     public void generateDatabase(GaussDBMGlobalState globalState) throws Exception {
-        while (globalState.getSchema().getDatabaseTables().size() < (int) sqlancer.Randomly.getNotCachedInteger(1, 2)) {
+        while (globalState.getSchema().getDatabaseTables().size() < (int) Randomly.getNotCachedInteger(1, 2)) {
             String tableName = DBMSCommon.createTableName(globalState.getSchema().getDatabaseTables().size());
             SQLQueryAdapter createTable = GaussDBMTableGenerator.generate(globalState, tableName);
             globalState.executeStatement(createTable);
         }
-        int inserts = (int) sqlancer.Randomly.getNotCachedInteger(1, globalState.getOptions().getMaxNumberInserts());
+        int inserts = (int) Randomly.getNotCachedInteger(1, globalState.getOptions().getMaxNumberInserts());
         for (int i = 0; i < inserts; i++) {
             globalState.executeStatement(GaussDBMInsertGenerator.insertRow(globalState));
         }
@@ -40,31 +67,98 @@ public class GaussDBMProvider extends SQLProviderAdapter<GaussDBMGlobalState, Ga
 
     @Override
     public SQLConnection createDatabase(GaussDBMGlobalState globalState) throws SQLException {
-        MainOptions options = globalState.getOptions();
-        loadDriverIfRequested(options);
+        loadDriver();
 
+        MainOptions options = globalState.getOptions();
         String username = options.getUserName();
         String password = options.getPassword();
+        String host = options.getHost();
+        int port = options.getPort();
 
-        String jdbcUrl = options.getConnectionURL();
-        if (jdbcUrl == null || jdbcUrl.isBlank()) {
-            throw new AssertionError(
-                    "GaussDB-M requires --connection-url. Example: --connection-url=jdbc:gaussdb://127.0.0.1:8000/test");
-        }
-        jdbcUrl = jdbcUrl.trim();
-        if (!jdbcUrl.startsWith("jdbc:")) {
-            jdbcUrl = "jdbc:" + jdbcUrl;
+        GaussDBMOptions gaussdbOptions = globalState.getDbmsSpecificOptions();
+        String targetDatabase = gaussdbOptions != null && gaussdbOptions.targetDatabase != null
+                ? gaussdbOptions.targetDatabase : "postgres";
+
+        String baseParams = "sslmode=disable&connectTimeout=10&socketTimeout=30";
+
+        Connection con = null;
+        SQLException lastError = null;
+        String jdbcUrl = null;
+
+        String configuredUrl = options.getConnectionURL();
+        if (configuredUrl != null && !configuredUrl.isBlank()) {
+            jdbcUrl = configuredUrl.trim();
+            if (!jdbcUrl.startsWith("jdbc:")) {
+                jdbcUrl = "jdbc:" + jdbcUrl;
+            }
+            if (!jdbcUrl.contains("sslmode")) {
+                jdbcUrl = jdbcUrl + (jdbcUrl.contains("?") ? "&" : "?") + baseParams;
+            }
+            System.err.println("[INFO] Using configured URL: " + jdbcUrl);
+
+            Properties props = parseJdbcProperties(options.getJdbcProperties());
+            if (username != null) {
+                props.setProperty("user", username);
+            }
+            if (password != null) {
+                props.setProperty("password", password);
+            }
+
+            try {
+                con = DriverManager.getConnection(jdbcUrl, props);
+            } catch (SQLException e) {
+                lastError = e;
+                System.err.println("[ERROR] Connection failed: " + e.getMessage());
+            }
+        } else {
+            // Try multiple URL schemes for GaussDB M-compatibility
+            String[] urlSchemes = { "opengauss", "gaussdb", "mysql" };
+
+            for (String scheme : urlSchemes) {
+                jdbcUrl = String.format("jdbc:%s://%s:%d/%s?%s", scheme, host, port, targetDatabase, baseParams);
+                System.err.println("[INFO] Trying connection URL: " + jdbcUrl);
+
+                Properties props = parseJdbcProperties(options.getJdbcProperties());
+                if (username != null) {
+                    props.setProperty("user", username);
+                }
+                if (password != null) {
+                    props.setProperty("password", password);
+                }
+
+                try {
+                    con = DriverManager.getConnection(jdbcUrl, props);
+                    if (con != null) {
+                        System.err.println("[INFO] Connected successfully using " + scheme + " scheme");
+                        break;
+                    }
+                } catch (SQLException e) {
+                    lastError = e;
+                    System.err.println("[WARN] Connection failed with " + scheme + " scheme: " + e.getMessage());
+                }
+            }
         }
 
-        Properties props = parseJdbcProperties(options.getJdbcProperties());
-        if (username != null) {
-            props.setProperty("user", username);
-        }
-        if (password != null) {
-            props.setProperty("password", password);
+        if (con == null) {
+            String msg = "Connection failed to GaussDB-M. Last error: " + (lastError != null ? lastError.getMessage() : "null");
+            msg += "\n\nPossible solutions:";
+            msg += "\n1. Ensure opengauss-jdbc driver is in classpath (recommended)";
+            msg += "\n2. Use --connection-url to specify full JDBC URL";
+            msg += "\n3. Create an M-compatible database: CREATE DATABASE tm WITH dbcompatibility 'B';";
+            msg += "\n4. Use --target-database option to specify your M-compatible database";
+            msg += "\n5. Verify host, port, username, password are correct";
+            throw new SQLException(msg, lastError);
         }
 
-        java.sql.Connection con = DriverManager.getConnection(jdbcUrl, props);
+        // Print connection info
+        try {
+            java.sql.DatabaseMetaData md = con.getMetaData();
+            System.err.println("[INFO] Connected to: " + md.getDatabaseProductName() + " " + md.getDatabaseProductVersion());
+            System.err.println("[INFO] JDBC Driver: " + md.getDriverName() + " " + md.getDriverVersion());
+        } catch (SQLException e) {
+            System.err.println("[WARN] Could not get database metadata: " + e.getMessage());
+        }
+
         String databaseName = globalState.getDatabaseName();
 
         if (options.useCreateDatabase()) {
@@ -97,18 +191,6 @@ public class GaussDBMProvider extends SQLProviderAdapter<GaussDBMGlobalState, Ga
         }
 
         return new SQLConnection(con);
-    }
-
-    private static void loadDriverIfRequested(MainOptions opt) {
-        String cls = opt.getJdbcDriverClass();
-        if (cls == null || cls.isBlank()) {
-            return;
-        }
-        try {
-            Class.forName(cls);
-        } catch (ClassNotFoundException e) {
-            throw new AssertionError("JDBC driver class not found: " + cls, e);
-        }
     }
 
     private static Properties parseJdbcProperties(String propString) {

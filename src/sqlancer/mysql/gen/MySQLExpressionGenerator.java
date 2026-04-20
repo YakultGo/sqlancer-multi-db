@@ -1,7 +1,9 @@
 package sqlancer.mysql.gen;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -15,7 +17,9 @@ import sqlancer.common.gen.UntypedExpressionGenerator;
 import sqlancer.common.schema.AbstractTables;
 import sqlancer.mysql.MySQLBugs;
 import sqlancer.mysql.MySQLGlobalState;
+import sqlancer.mysql.MySQLOptions;
 import sqlancer.mysql.MySQLSchema.MySQLColumn;
+import sqlancer.mysql.MySQLSchema.MySQLDataType;
 import sqlancer.mysql.MySQLSchema.MySQLRowValue;
 import sqlancer.mysql.MySQLSchema.MySQLTable;
 import sqlancer.mysql.ast.MySQLAggregate;
@@ -151,23 +155,47 @@ public class MySQLExpressionGenerator extends UntypedExpressionGenerator<MySQLEx
     }
 
     private enum ConstantType {
-        INT, NULL, STRING, DOUBLE, DATE, TIME, DATETIME, TIMESTAMP, YEAR;
+        INT, NULL, STRING, DOUBLE, DATE, TIME, DATETIME, TIMESTAMP, YEAR, BIT, ENUM, SET, JSON, BINARY;
     }
 
     @Override
     public MySQLExpression generateConstant() {
         final boolean testDates = state.getDbmsSpecificOptions().testDates;
-        final ConstantType[] values;
-        if (state.usesPQS()) {
-            values = testDates
-                    ? new ConstantType[] { ConstantType.INT, ConstantType.NULL, ConstantType.STRING, ConstantType.DATE,
-                            ConstantType.TIME, ConstantType.DATETIME, ConstantType.TIMESTAMP, ConstantType.YEAR }
-                    : new ConstantType[] { ConstantType.INT, ConstantType.NULL, ConstantType.STRING };
-        } else {
-            values = testDates ? ConstantType.values() : new ConstantType[] { ConstantType.INT, ConstantType.NULL,
-                    ConstantType.STRING, ConstantType.DOUBLE };
+        final MySQLOptions options = state.getDbmsSpecificOptions();
+
+        // 根据参数构建可用的常量类型列表
+        List<ConstantType> availableTypes = new ArrayList<>();
+        availableTypes.add(ConstantType.INT);
+        availableTypes.add(ConstantType.NULL);
+        availableTypes.add(ConstantType.STRING);
+        if (!state.usesPQS()) {
+            availableTypes.add(ConstantType.DOUBLE);
         }
-        switch (Randomly.fromOptions(values)) {
+        if (testDates) {
+            availableTypes.add(ConstantType.DATE);
+            availableTypes.add(ConstantType.TIME);
+            availableTypes.add(ConstantType.DATETIME);
+            availableTypes.add(ConstantType.TIMESTAMP);
+            availableTypes.add(ConstantType.YEAR);
+        }
+        // 根据参数添加 BIT/ENUM/SET 类型
+        if (options.testBit && !state.usesPQS()) {
+            availableTypes.add(ConstantType.BIT);
+        }
+        if (options.testEnums && !state.usesPQS()) {
+            availableTypes.add(ConstantType.ENUM);
+        }
+        if (options.testSets && !state.usesPQS()) {
+            availableTypes.add(ConstantType.SET);
+        }
+        if (options.testJSONDataType && !state.usesPQS()) {
+            availableTypes.add(ConstantType.JSON);
+        }
+        if (options.testBinary && !state.usesPQS()) {
+            availableTypes.add(ConstantType.BINARY);
+        }
+
+        switch (Randomly.fromList(availableTypes)) {
         case INT:
             return MySQLConstant.createIntConstant((int) state.getRandomly().getInteger());
         case NULL:
@@ -189,9 +217,151 @@ public class MySQLExpressionGenerator extends UntypedExpressionGenerator<MySQLEx
             return generateTimestampConstant();
         case YEAR:
             return generateYearConstant();
+        case BIT:
+            return generateBitConstant();
+        case ENUM:
+            return generateEnumConstant();
+        case SET:
+            return generateSetConstant();
+        case JSON:
+            return generateJSONConstant();
+        case BINARY:
+            return generateBinaryConstant();
         default:
             throw new AssertionError();
         }
+    }
+
+    private MySQLConstant generateJSONConstant() {
+        // 生成简单的 JSON 值
+        int depth = Randomly.smallNumber();  // 控制嵌套深度
+        return MySQLConstant.createJSONConstant(generateRandomJSON(depth));
+    }
+
+    /**
+     * 生成随机 JSON 值
+     */
+    private String generateRandomJSON(int maxDepth) {
+        if (maxDepth <= 0) {
+            // 生成基本值
+            switch (Randomly.fromOptions(0, 1, 2, 3)) {
+            case 0:
+                return "null";
+            case 1:
+                return String.valueOf(state.getRandomly().getInteger());
+            case 2:
+                return "\"" + state.getRandomly().getString().replace("\"", "\\\"").replace("\\", "\\\\") + "\"";
+            case 3:
+                return Randomly.fromOptions("true", "false");
+            default:
+                return "null";
+            }
+        }
+
+        // 生成对象或数组
+        switch (Randomly.fromOptions(0, 1)) {
+        case 0:  // JSON 对象
+            int numPairs = 1 + Randomly.smallNumber();
+            StringBuilder obj = new StringBuilder("{");
+            for (int i = 0; i < numPairs; i++) {
+                if (i > 0) {
+                    obj.append(", ");
+                }
+                String key = "k" + i;
+                obj.append("\"").append(key).append("\": ");
+                obj.append(generateRandomJSON(maxDepth - 1));
+            }
+            obj.append("}");
+            return obj.toString();
+        case 1:  // JSON 数组
+            int numElements = 1 + Randomly.smallNumber();
+            StringBuilder arr = new StringBuilder("[");
+            for (int i = 0; i < numElements; i++) {
+                if (i > 0) {
+                    arr.append(", ");
+                }
+                arr.append(generateRandomJSON(maxDepth - 1));
+            }
+            arr.append("]");
+            return arr.toString();
+        default:
+            return "{}";
+        }
+    }
+
+    private MySQLConstant generateBinaryConstant() {
+        // 生成随机长度的二进制数据
+        int length = 1 + Randomly.smallNumber();  // 通常 1-10 字节
+        byte[] value = new byte[length];
+        Randomly r = state.getRandomly();
+        for (int i = 0; i < length; i++) {
+            value[i] = (byte) r.getInteger(Byte.MIN_VALUE, Byte.MAX_VALUE + 1);
+        }
+        return MySQLConstant.createBinaryConstant(value);
+    }
+
+    private MySQLConstant generateBitConstant() {
+        int width = (int) Randomly.getNotCachedInteger(1, 64);
+        // 避免溢出：当 width >= 63 时，maxValue 接近 Long.MAX_VALUE
+        long maxValue;
+        if (width >= 63) {
+            maxValue = Long.MAX_VALUE;
+        } else {
+            maxValue = (1L << width) - 1;
+        }
+        long value;
+        if (maxValue == Long.MAX_VALUE) {
+            // 直接生成随机值，避免溢出
+            value = (long) state.getRandomly().getInteger(0, Integer.MAX_VALUE);
+        } else {
+            value = (long) state.getRandomly().getInteger(0, (int) Math.min(maxValue + 1, Integer.MAX_VALUE));
+        }
+        return MySQLConstant.createBitConstant(value, width);
+    }
+
+    private MySQLConstant generateEnumConstant() {
+        // 如果有 ENUM 列可用，从中选择值
+        if (columns != null && !columns.isEmpty()) {
+            for (MySQLColumn col : columns) {
+                if (col.getType() == MySQLDataType.ENUM && col.getEnumValues() != null) {
+                    List<String> values = col.getEnumValues();
+                    String value = Randomly.fromList(values);
+                    int index = values.indexOf(value) + 1;
+                    return MySQLConstant.createEnumConstant(value, index);
+                }
+            }
+        }
+        // 没有可用 ENUM 列时，生成一个默认的枚举常量
+        int index = (int) Randomly.getNotCachedInteger(1, 10);
+        String value = "e" + (index - 1);
+        return MySQLConstant.createEnumConstant(value, index);
+    }
+
+    private MySQLConstant generateSetConstant() {
+        // 如果有 SET 列可用，从中选择值
+        if (columns != null && !columns.isEmpty()) {
+            for (MySQLColumn col : columns) {
+                if (col.getType() == MySQLDataType.SET && col.getSetValues() != null) {
+                    List<String> values = col.getSetValues();
+                    Set<String> selectedValues = new HashSet<>(Randomly.nonEmptySubset(values));
+                    long bitmap = 0;
+                    for (String val : selectedValues) {
+                        bitmap |= (1L << values.indexOf(val));
+                    }
+                    return MySQLConstant.createSetConstant(selectedValues, bitmap);
+                }
+            }
+        }
+        // 没有可用 SET 列时，生成一个默认的 SET 常量
+        int numValues = (int) Randomly.getNotCachedInteger(1, 5);
+        Set<String> selectedValues = new HashSet<>();
+        long bitmap = 0;
+        for (int i = 0; i < numValues; i++) {
+            String value = "s" + i;
+            selectedValues.add(value);
+            bitmap |= (1L << i);
+        }
+        return MySQLConstant.createSetConstant(selectedValues, bitmap);
     }
 
     private MySQLConstant generateDateConstant() {

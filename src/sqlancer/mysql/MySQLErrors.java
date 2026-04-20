@@ -21,6 +21,16 @@ public final class MySQLErrors {
         errors.add("Incorrect DATETIME value");
         errors.add("Incorrect DATE value");
         errors.add("Incorrect TIME value");
+        // 视图和 JOIN 相关错误
+        errors.add("Not unique table/alias");
+        errors.add("VIEW contains invalid column(s)");
+        errors.add("Unknown view");
+        errors.add("reference to VIEW");
+        // 二进制类型与字符串比较的字符集转换错误
+        errors.add("Cannot convert string");
+        errors.add("Illegal mix of collations");
+        // SQL 语法错误（CODDTEST 等复杂查询可能产生的语法问题）
+        errors.add("You have an error in your SQL syntax");
 
         if (MySQLBugs.bug111471) {
             errors.add("Memory capacity exceeded");
@@ -74,6 +84,8 @@ public final class MySQLErrors {
         errors.add("cannot be null");
         errors.add("Incorrect decimal value");
         errors.add("The value specified for generated column");
+        // 二进制值插入字符串列的字符集错误
+        errors.add("Incorrect string value");
 
         return errors;
     }

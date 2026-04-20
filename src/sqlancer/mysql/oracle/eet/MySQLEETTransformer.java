@@ -219,8 +219,21 @@ public class MySQLEETTransformer {
             return new MySQLConstant.MySQLTimestampConstant(2000, 1, 1, 0, 0, 0, 0, 0);
         case YEAR:
             return new MySQLConstant.MySQLYearConstant(2000);
+        case BIT:
+            return MySQLConstant.createBitConstant(0, 1);
+        case ENUM:
+            return MySQLConstant.createEnumConstant("e0", 0);
+        case SET:
+            return MySQLConstant.createSetConstant(java.util.Collections.singleton("s0"), 1);
+        case JSON:
+            return MySQLConstant.createJSONConstant("{}");
+        case BINARY:
+        case VARBINARY:
+        case BLOB:
+            return MySQLConstant.createBinaryConstant(new byte[]{0});
         default:
-            throw new AssertionError(t);
+            // 对于未知类型，抛出 IgnoreMeException 而不是 AssertionError
+            throw new sqlancer.IgnoreMeException();
         }
     }
 

@@ -8,6 +8,7 @@ import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,14 +31,41 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
     private static final int NR_SCHEMA_READ_TRIES = 10;
 
     public enum MySQLDataType {
-        INT, VARCHAR, FLOAT, DOUBLE, DECIMAL, DATE, TIME, DATETIME, TIMESTAMP, YEAR;
+        INT, VARCHAR, FLOAT, DOUBLE, DECIMAL, DATE, TIME, DATETIME, TIMESTAMP, YEAR, BIT, ENUM, SET, JSON, BINARY, VARBINARY, BLOB;
 
         public static MySQLDataType getRandom(MySQLGlobalState globalState) {
-            if (globalState.usesPQS()) {
-                return Randomly.fromOptions(MySQLDataType.INT, MySQLDataType.VARCHAR);
-            } else {
-                return Randomly.fromOptions(values());
+            List<MySQLDataType> dataTypes = new ArrayList<>(Arrays.asList(values()));
+            MySQLOptions options = globalState.getDbmsSpecificOptions();
+            // 根据参数过滤类型
+            if (!options.testBit) {
+                dataTypes.remove(MySQLDataType.BIT);
             }
+            if (!options.testEnums) {
+                dataTypes.remove(MySQLDataType.ENUM);
+            }
+            if (!options.testSets) {
+                dataTypes.remove(MySQLDataType.SET);
+            }
+            if (!options.testJSONDataType) {
+                dataTypes.remove(MySQLDataType.JSON);
+            }
+            if (!options.testBinary) {
+                dataTypes.remove(MySQLDataType.BINARY);
+                dataTypes.remove(MySQLDataType.VARBINARY);
+                dataTypes.remove(MySQLDataType.BLOB);
+            }
+            // PQS 模式下排除复杂类型
+            if (globalState.usesPQS()) {
+                dataTypes.remove(MySQLDataType.BIT);
+                dataTypes.remove(MySQLDataType.ENUM);
+                dataTypes.remove(MySQLDataType.SET);
+                dataTypes.remove(MySQLDataType.JSON);
+                dataTypes.remove(MySQLDataType.BINARY);
+                dataTypes.remove(MySQLDataType.VARBINARY);
+                dataTypes.remove(MySQLDataType.BLOB);
+                return Randomly.fromOptions(MySQLDataType.INT, MySQLDataType.VARCHAR);
+            }
+            return Randomly.fromList(dataTypes);
         }
 
         public boolean isNumeric() {
@@ -46,6 +74,7 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
             case DOUBLE:
             case FLOAT:
             case DECIMAL:
+            case BIT:  // BIT 类型也可以进行数值比较
                 return true;
             case VARCHAR:
             case DATE:
@@ -53,6 +82,12 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
             case DATETIME:
             case TIMESTAMP:
             case YEAR:
+            case ENUM:
+            case SET:
+            case JSON:
+            case BINARY:
+            case VARBINARY:
+            case BLOB:
                 return false;
             default:
                 throw new AssertionError(this);
@@ -65,6 +100,9 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
 
         private final boolean isPrimaryKey;
         private final int precision;
+        private List<String> enumValues;  // ENUM 值列表
+        private List<String> setValues;   // SET 值列表
+        private int bitWidth;             // BIT 宽度
 
         public enum CollateSequence {
             NOCASE, RTRIM, BINARY;
@@ -86,6 +124,30 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
 
         public boolean isPrimaryKey() {
             return isPrimaryKey;
+        }
+
+        public List<String> getEnumValues() {
+            return enumValues;
+        }
+
+        public void setEnumValues(List<String> enumValues) {
+            this.enumValues = enumValues;
+        }
+
+        public List<String> getSetValues() {
+            return setValues;
+        }
+
+        public void setSetValues(List<String> setValues) {
+            this.setValues = setValues;
+        }
+
+        public int getBitWidth() {
+            return bitWidth;
+        }
+
+        public void setBitWidth(int bitWidth) {
+            this.bitWidth = bitWidth;
         }
 
     }
@@ -133,17 +195,29 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
                         }
                         case TIME: {
                             Time t = randomRowValues.getTime(columnIndex);
-                            constant = MySQLConstant.createStringConstant(t.toString());
+                            if (t == null) {
+                                constant = MySQLConstant.createNullConstant();
+                            } else {
+                                constant = MySQLConstant.createStringConstant(t.toString());
+                            }
                             break;
                         }
                         case DATETIME: {
                             Timestamp ts = randomRowValues.getTimestamp(columnIndex);
-                            constant = MySQLConstant.createStringConstant(formatSqlDateTimeLiteral(ts));
+                            if (ts == null) {
+                                constant = MySQLConstant.createNullConstant();
+                            } else {
+                                constant = MySQLConstant.createStringConstant(formatSqlDateTimeLiteral(ts));
+                            }
                             break;
                         }
                         case TIMESTAMP: {
                             Timestamp ts = randomRowValues.getTimestamp(columnIndex);
-                            constant = MySQLConstant.createStringConstant(formatSqlDateTimeLiteral(ts));
+                            if (ts == null) {
+                                constant = MySQLConstant.createNullConstant();
+                            } else {
+                                constant = MySQLConstant.createStringConstant(formatSqlDateTimeLiteral(ts));
+                            }
                             break;
                         }
                         case YEAR: {
@@ -167,6 +241,9 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
 
     /** Formats JDBC {@link Timestamp} as a MySQL-compatible datetime literal string (date, space, time). */
     private static String formatSqlDateTimeLiteral(Timestamp ts) {
+        if (ts == null) {
+            return null;
+        }
         return ts.toString();
     }
 
@@ -200,6 +277,23 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
             return MySQLDataType.TIMESTAMP;
         case "year":
             return MySQLDataType.YEAR;
+        case "bit":
+            return MySQLDataType.BIT;
+        case "enum":
+            return MySQLDataType.ENUM;
+        case "set":
+            return MySQLDataType.SET;
+        case "json":
+            return MySQLDataType.JSON;
+        case "binary":
+            return MySQLDataType.BINARY;
+        case "varbinary":
+            return MySQLDataType.VARBINARY;
+        case "blob":
+        case "tinyblob":
+        case "mediumblob":
+        case "longblob":
+            return MySQLDataType.BLOB;
         default:
             throw new AssertionError(typeString);
         }
@@ -232,10 +326,24 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
         }
 
         private final MySQLEngine engine;
+        private final boolean isTemporary;
 
         public MySQLTable(String tableName, List<MySQLColumn> columns, List<MySQLIndex> indexes, MySQLEngine engine) {
-            super(tableName, columns, indexes, false /* TODO: support views */);
+            super(tableName, columns, indexes, false);
             this.engine = engine;
+            this.isTemporary = false;
+        }
+
+        public MySQLTable(String tableName, List<MySQLColumn> columns, List<MySQLIndex> indexes, MySQLEngine engine, boolean isView) {
+            super(tableName, columns, indexes, isView);
+            this.engine = engine;
+            this.isTemporary = false;
+        }
+
+        public MySQLTable(String tableName, List<MySQLColumn> columns, List<MySQLIndex> indexes, MySQLEngine engine, boolean isView, boolean isTemporary) {
+            super(tableName, columns, indexes, isView);
+            this.engine = engine;
+            this.isTemporary = isTemporary;
         }
 
         public MySQLEngine getEngine() {
@@ -244,6 +352,10 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
 
         public boolean hasPrimaryKey() {
             return getColumns().stream().anyMatch(c -> c.isPrimaryKey());
+        }
+
+        public boolean isTemporary() {
+            return isTemporary;
         }
 
     }
@@ -276,16 +388,20 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
             try {
                 List<MySQLTable> databaseTables = new ArrayList<>();
                 try (Statement s = con.createStatement()) {
+                    // 获取 TABLE_TYPE 字段来区分表和视图
                     try (ResultSet rs = s.executeQuery(
-                            "select TABLE_NAME, ENGINE from information_schema.TABLES where table_schema = '"
+                            "select TABLE_NAME, ENGINE, TABLE_TYPE from information_schema.TABLES where table_schema = '"
                                     + databaseName + "';")) {
                         while (rs.next()) {
                             String tableName = rs.getString("TABLE_NAME");
                             String tableEngineStr = rs.getString("ENGINE");
+                            String tableType = rs.getString("TABLE_TYPE");
                             MySQLEngine engine = MySQLEngine.get(tableEngineStr);
+                            boolean isView = tableType != null && tableType.equals("VIEW");
+
                             List<MySQLColumn> databaseColumns = getTableColumns(con, tableName, databaseName);
                             List<MySQLIndex> indexes = getIndexes(con, tableName, databaseName);
-                            MySQLTable t = new MySQLTable(tableName, databaseColumns, indexes, engine);
+                            MySQLTable t = new MySQLTable(tableName, databaseColumns, indexes, engine, isView);
                             for (MySQLColumn c : databaseColumns) {
                                 c.setTable(t);
                             }
@@ -326,14 +442,76 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
                 while (rs.next()) {
                     String columnName = rs.getString("COLUMN_NAME");
                     String dataType = rs.getString("DATA_TYPE");
+                    String columnType = rs.getString("COLUMN_TYPE");  // 完整类型定义，包含 ENUM/SET 值列表
                     int precision = rs.getInt("NUMERIC_PRECISION");
                     boolean isPrimaryKey = rs.getString("COLUMN_KEY").equals("PRI");
-                    MySQLColumn c = new MySQLColumn(columnName, getColumnType(dataType), isPrimaryKey, precision);
+                    MySQLDataType type = getColumnType(dataType);
+                    MySQLColumn c = new MySQLColumn(columnName, type, isPrimaryKey, precision);
+
+                    // 解析 ENUM/SET 值列表和 BIT 宽度
+                    if (type == MySQLDataType.ENUM) {
+                        List<String> enumValues = parseEnumOrSetValues(columnType);
+                        c.setEnumValues(enumValues);
+                    } else if (type == MySQLDataType.SET) {
+                        List<String> setValues = parseEnumOrSetValues(columnType);
+                        c.setSetValues(setValues);
+                    } else if (type == MySQLDataType.BIT) {
+                        // 从 columnType 解析 BIT 宽度，格式为 "bit(n)"
+                        int bitWidth = parseBitWidth(columnType);
+                        c.setBitWidth(bitWidth);
+                    }
+
                     columns.add(c);
                 }
             }
         }
         return columns;
+    }
+
+    /**
+     * 从 COLUMN_TYPE 字段解析 ENUM 或 SET 值列表
+     * 例如：enum('e0','e1','e2') -> ["e0", "e1", "e2"]
+     */
+    private static List<String> parseEnumOrSetValues(String columnType) {
+        // 找到括号内的内容
+        int startIndex = columnType.indexOf('(');
+        int endIndex = columnType.lastIndexOf(')');
+        if (startIndex == -1 || endIndex == -1) {
+            return new ArrayList<>();
+        }
+        String valuesStr = columnType.substring(startIndex + 1, endIndex);
+
+        // 解析值列表，格式为 'value1','value2',...
+        List<String> values = new ArrayList<>();
+        // 简单解析：按逗号分割，去除引号
+        String[] parts = valuesStr.split(",");
+        for (String part : parts) {
+            // 去除单引号
+            String value = part.trim();
+            if (value.startsWith("'") && value.endsWith("'")) {
+                value = value.substring(1, value.length() - 1);
+            }
+            values.add(value);
+        }
+        return values;
+    }
+
+    /**
+     * 从 COLUMN_TYPE 字段解析 BIT 宽度
+     * 例如：bit(8) -> 8
+     */
+    private static int parseBitWidth(String columnType) {
+        int startIndex = columnType.indexOf('(');
+        int endIndex = columnType.lastIndexOf(')');
+        if (startIndex == -1 || endIndex == -1) {
+            return 1;  // 默认宽度
+        }
+        String widthStr = columnType.substring(startIndex + 1, endIndex);
+        try {
+            return Integer.parseInt(widthStr.trim());
+        } catch (NumberFormatException e) {
+            return 1;
+        }
     }
 
     public MySQLSchema(List<MySQLTable> databaseTables) {
@@ -342,6 +520,19 @@ public class MySQLSchema extends AbstractSchema<MySQLGlobalState, MySQLTable> {
 
     public MySQLTables getRandomTableNonEmptyTables() {
         return new MySQLTables(Randomly.nonEmptySubset(getDatabaseTables()));
+    }
+
+    /**
+     * 获取一个随机的非视图表（用于 INSERT/UPDATE/DELETE 操作）
+     */
+    public MySQLTable getRandomTableNonView() {
+        List<MySQLTable> nonViewTables = getDatabaseTables().stream()
+                .filter(t -> !t.isView())
+                .collect(java.util.stream.Collectors.toList());
+        if (nonViewTables.isEmpty()) {
+            return null;  // 返回 null，由调用方处理
+        }
+        return Randomly.fromList(nonViewTables);
     }
 
 }

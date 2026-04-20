@@ -2,6 +2,7 @@ package sqlancer.mysql.gen;
 
 import java.util.Arrays;
 
+import sqlancer.IgnoreMeException;
 import sqlancer.Randomly;
 import sqlancer.common.query.ExpectedErrors;
 import sqlancer.common.query.SQLQueryAdapter;
@@ -27,7 +28,11 @@ public class MySQLDeleteGenerator {
     }
 
     private SQLQueryAdapter generate() {
-        MySQLTable randomTable = globalState.getSchema().getRandomTable();
+        // 获取随机表，过滤掉视图（视图不可删除数据）
+        MySQLTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
+        if (randomTable == null) {
+            throw new IgnoreMeException();
+        }
         MySQLExpressionGenerator gen = new MySQLExpressionGenerator(globalState).setColumns(randomTable.getColumns());
         ExpectedErrors errors = new ExpectedErrors();
         boolean testDates = globalState.getDbmsSpecificOptions().testDates;

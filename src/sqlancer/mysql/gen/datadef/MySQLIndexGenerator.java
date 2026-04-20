@@ -50,7 +50,12 @@ public class MySQLIndexGenerator {
         sb.append(globalState.getSchema().getFreeIndexName());
         indexType();
         sb.append(" ON ");
-        MySQLTable table = schema.getRandomTable();
+        // 只选择 BASE TABLE，不包括 VIEW（MySQL 不允许在 VIEW 上创建索引）
+        MySQLTable table = schema.getRandomTableNonView();
+        if (table == null) {
+            // 如果没有可用的 BASE TABLE，抛出 IgnoreMeException
+            throw new sqlancer.IgnoreMeException();
+        }
         MySQLExpressionGenerator gen = new MySQLExpressionGenerator(globalState).setColumns(table.getColumns());
         sb.append(table.getName());
         sb.append("(");

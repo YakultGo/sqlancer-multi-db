@@ -405,6 +405,13 @@
       <scope>system</scope>
       <systemPath>${project.basedir}/src/sqlancer/gaussdb/gsjdbc4.jar</systemPath>
     </dependency>
+
+    <!-- openGauss JDBC driver (recommended for GaussDB connections) -->
+    <dependency>
+      <groupId>org.opengauss</groupId>
+      <artifactId>opengauss-jdbc</artifactId>
+      <version>6.0.2-og</version>
+    </dependency>
   </dependencies>
   <reporting>
     <plugins>

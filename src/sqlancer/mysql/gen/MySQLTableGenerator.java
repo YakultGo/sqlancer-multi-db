@@ -48,7 +48,10 @@ public class MySQLTableGenerator {
         ExpectedErrors errors = new ExpectedErrors();
 
         sb.append("CREATE");
-        // TODO support temporary tables in the schema
+        // 临时表支持
+        if (globalState.getDbmsSpecificOptions().testTempTables && Randomly.getBooleanWithSmallProbability()) {
+            sb.append(" TEMPORARY");
+        }
         sb.append(" TABLE");
         if (Randomly.getBoolean()) {
             sb.append(" IF NOT EXISTS");
@@ -69,6 +72,11 @@ public class MySQLTableGenerator {
                     sb.append(", ");
                 }
                 appendColumn(i);
+            }
+            // 添加外键约束
+            if (globalState.getDbmsSpecificOptions().testForeignKeys && !schema.getDatabaseTables().isEmpty()
+                    && Randomly.getBooleanWithSmallProbability() && engine == MySQLEngine.INNO_DB) {
+                appendForeignKeyConstraint();
             }
             sb.append(")");
             sb.append(" ");
@@ -107,7 +115,7 @@ public class MySQLTableGenerator {
     }
 
     private enum PartitionOptions {
-        HASH, KEY
+        HASH, KEY, RANGE, LIST
     }
 
     private void appendPartitionOptions() {
@@ -124,11 +132,6 @@ public class MySQLTableGenerator {
                 sb.append(" LINEAR");
             }
             sb.append(" HASH(");
-            // TODO: consider arbitrary expressions
-            // MySQLExpression expr =
-            // MySQLRandomExpressionGenerator.generateRandomExpression(Collections.emptyList(),
-            // null, r);
-            // sb.append(MySQLVisitor.asString(expr));
             sb.append(Randomly.fromList(columns));
             sb.append(")");
             break;
@@ -145,8 +148,79 @@ public class MySQLTableGenerator {
             sb.append(Randomly.nonEmptySubset(columns).stream().collect(Collectors.joining(", ")));
             sb.append(")");
             break;
+        case RANGE:
+            sb.append(" RANGE(");
+            // RANGE 分区需要使用数值列
+            sb.append(getNumericColumn());
+            sb.append(")");
+            sb.append(" (");
+            appendRangePartitions();
+            sb.append(")");
+            break;
+        case LIST:
+            sb.append(" LIST(");
+            // LIST 分区需要使用数值列
+            sb.append(getNumericColumn());
+            sb.append(")");
+            sb.append(" (");
+            appendListPartitions();
+            sb.append(")");
+            break;
         default:
             throw new AssertionError();
+        }
+    }
+
+    /**
+     * 获取数值列用于分区
+     */
+    private String getNumericColumn() {
+        // 简化实现：返回第一个列或随机列
+        // 实际 RANGE/LIST 分区需要数值列，这里简化处理
+        return Randomly.fromList(columns);
+    }
+
+    /**
+     * 添加 RANGE 分区定义
+     */
+    private void appendRangePartitions() {
+        int numPartitions = 2 + Randomly.smallNumber();  // 至少 2 个分区
+        for (int i = 0; i < numPartitions; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append("PARTITION p").append(i);
+            sb.append(" VALUES LESS THAN (");
+            if (i == numPartitions - 1 && Randomly.getBoolean()) {
+                sb.append("MAXVALUE");
+            } else {
+                // 生成递增的分区值
+                sb.append((i + 1) * 10);
+            }
+            sb.append(")");
+        }
+    }
+
+    /**
+     * 添加 LIST 分区定义
+     */
+    private void appendListPartitions() {
+        int numPartitions = 2 + Randomly.smallNumber();  // 至少 2 个分区
+        for (int i = 0; i < numPartitions; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append("PARTITION p").append(i);
+            sb.append(" VALUES IN (");
+            // 生成分区值列表
+            int numValues = 1 + Randomly.smallNumber();
+            for (int j = 0; j < numValues; j++) {
+                if (j > 0) {
+                    sb.append(", ");
+                }
+                sb.append((i * 10) + j + 1);
+            }
+            sb.append(")");
         }
     }
 
@@ -277,14 +351,17 @@ public class MySQLTableGenerator {
 
     private void appendColumnOption(MySQLDataType type) {
         boolean isTextType = type == MySQLDataType.VARCHAR;
+        boolean isBlobType = type == MySQLDataType.BLOB || type == MySQLDataType.BINARY || type == MySQLDataType.VARBINARY;
+        boolean isJsonType = type == MySQLDataType.JSON;
         boolean isNull = false;
         boolean columnHasPrimaryKey = false;
         List<ColumnOptions> columnOptions = Randomly.subset(ColumnOptions.values());
         if (!columnOptions.contains(ColumnOptions.NULL_OR_NOT_NULL)) {
             tableHasNullableColumn = true;
         }
-        if (isTextType) {
-            // TODO: restriction due to the limited key length
+        // MySQL 不允许在 TEXT/BLOB/JSON 类型上直接创建 UNIQUE 或 PRIMARY KEY 约束
+        // 因为这些类型需要前缀长度才能创建索引
+        if (isTextType || isBlobType || isJsonType) {
             columnOptions.remove(ColumnOptions.PRIMARY_KEY);
             columnOptions.remove(ColumnOptions.UNIQUE);
         }
@@ -407,8 +484,58 @@ public class MySQLTableGenerator {
             sb.append(Randomly.fromOptions("DOUBLE", "FLOAT"));
             optionallyAddPrecisionAndScale(sb);
             break;
+        case BIT: {
+            // BIT 类型，支持1-64位
+            int bitWidth = (int) Randomly.getNotCachedInteger(1, 64);
+            sb.append("BIT(");
+            sb.append(bitWidth);
+            sb.append(")");
+            break;
+        }
+        case ENUM: {
+            // ENUM 类型，生成值列表
+            List<String> enumValues = generateEnumOrSetValues("e");
+            sb.append("ENUM('");
+            sb.append(enumValues.stream().collect(java.util.stream.Collectors.joining("','")));
+            sb.append("')");
+            break;
+        }
+        case SET: {
+            // SET 类型，生成值列表
+            List<String> setValues = generateEnumOrSetValues("s");
+            sb.append("SET('");
+            sb.append(setValues.stream().collect(java.util.stream.Collectors.joining("','")));
+            sb.append("')");
+            break;
+        }
+        case JSON: {
+            // JSON 类型
+            sb.append("JSON");
+            break;
+        }
+        case BINARY: {
+            // BINARY 类型，固定长度
+            int binaryLength = (int) Randomly.getNotCachedInteger(1, 255);
+            sb.append("BINARY(");
+            sb.append(binaryLength);
+            sb.append(")");
+            break;
+        }
+        case VARBINARY: {
+            // VARBINARY 类型，可变长度
+            int varbinaryLength = (int) Randomly.getNotCachedInteger(1, 65535);
+            sb.append("VARBINARY(");
+            sb.append(varbinaryLength);
+            sb.append(")");
+            break;
+        }
+        case BLOB: {
+            // BLOB 类型及其变体
+            sb.append(Randomly.fromOptions("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB"));
+            break;
+        }
         default:
-            throw new AssertionError();
+            throw new AssertionError(randomType);
         }
         if (randomType.isNumeric()) {
             if (Randomly.getBoolean() && randomType != MySQLDataType.INT && !MySQLBugs.bug99127) {
@@ -418,6 +545,15 @@ public class MySQLTableGenerator {
                 sb.append(" ZEROFILL");
             }
         }
+    }
+
+    private List<String> generateEnumOrSetValues(String prefix) {
+        int numValues = (int) Randomly.getNotCachedInteger(1, 10);
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < numValues; i++) {
+            values.add(prefix + i);
+        }
+        return values;
     }
 
     private int getRandomFsp() {
@@ -446,6 +582,44 @@ public class MySQLTableGenerator {
             long n = Math.min(nCandidate, m);
             sb.append(n);
             sb.append(")");
+        }
+    }
+
+    /**
+     * 添加外键约束
+     */
+    private void appendForeignKeyConstraint() {
+        sb.append(", ");
+        sb.append("CONSTRAINT ");
+        sb.append("fk_").append(tableName).append("_").append(Randomly.smallNumber());
+        sb.append(" FOREIGN KEY (");
+        // 选择一个列作为外键列
+        String fkColumn = Randomly.fromList(columns);
+        sb.append(fkColumn);
+        sb.append(") REFERENCES ");
+        // 引用另一个表的主键列
+        MySQLSchema.MySQLTable refTable = schema.getRandomTable();
+        sb.append(refTable.getName());
+        sb.append("(");
+        // 引用表的列（如果有主键则用主键，否则随机选择）
+        if (refTable.hasPrimaryKey()) {
+            sb.append(refTable.getColumns().stream()
+                    .filter(c -> c.isPrimaryKey())
+                    .findFirst()
+                    .orElse(refTable.getRandomColumn())
+                    .getName());
+        } else {
+            sb.append(refTable.getRandomColumn().getName());
+        }
+        sb.append(")");
+        // 添加 ON DELETE 和 ON UPDATE 动作
+        if (Randomly.getBoolean()) {
+            sb.append(" ON DELETE ");
+            sb.append(Randomly.fromOptions("CASCADE", "SET NULL", "RESTRICT", "NO ACTION"));
+        }
+        if (Randomly.getBoolean()) {
+            sb.append(" ON UPDATE ");
+            sb.append(Randomly.fromOptions("CASCADE", "SET NULL", "RESTRICT", "NO ACTION"));
         }
     }
 

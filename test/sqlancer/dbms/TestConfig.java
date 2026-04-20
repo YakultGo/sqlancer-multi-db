@@ -16,6 +16,8 @@ public class TestConfig {
     public static final String MYSQL_ENV = "MYSQL_AVAILABLE";
     public static final String OCEANBASE_ENV = "OCEANBASE_AVAILABLE";
     public static final String POSTGRES_ENV = "POSTGRES_AVAILABLE";
+    public static final String GAUSSDB_PG_ENV = "GAUSSDB_PG_AVAILABLE";
+    public static final String GAUSSDB_A_ENV = "GAUSSDB_A_AVAILABLE";
     public static final String PRESTO_ENV = "PRESTO_AVAILABLE";
     public static final String TIDB_ENV = "TIDB_AVAILABLE";
     public static final String YUGABYTE_ENV = "YUGABYTE_AVAILABLE";

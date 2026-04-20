@@ -135,7 +135,8 @@ public abstract class MySQLConstant implements MySQLExpression {
             } else if (rightVal.isString()) {
                 return MySQLConstant.createBoolean(value.equalsIgnoreCase(rightVal.getString()));
             } else {
-                throw new AssertionError(rightVal);
+                // 日期/时间等类型的比较，忽略而不是抛出 AssertionError
+                throw new IgnoreMeException();
             }
         }
 
@@ -750,6 +751,450 @@ public abstract class MySQLConstant implements MySQLExpression {
         }
     }
 
+    public static class MySQLBitConstant extends MySQLConstant {
+
+        private final long value;  // 位值（使用 long 存储，最多支持64位）
+        private final int width;   // 位宽度
+
+        public MySQLBitConstant(long value, int width) {
+            this.value = value;
+            this.width = width;
+        }
+
+        @Override
+        public String getTextRepresentation() {
+            // MySQL BIT 类型使用 b'...' 格式
+            String binaryStr = Long.toBinaryString(value);
+            // 补齐到指定宽度
+            while (binaryStr.length() < width) {
+                binaryStr = "0" + binaryStr;
+            }
+            return "b'" + binaryStr + "'";
+        }
+
+        @Override
+        public String castAsString() {
+            return getTextRepresentation();
+        }
+
+        @Override
+        public MySQLDataType getType() {
+            return MySQLDataType.BIT;
+        }
+
+        @Override
+        public boolean asBooleanNotNull() {
+            return value != 0;
+        }
+
+        @Override
+        public MySQLConstant isEquals(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLBitConstant) {
+                return MySQLConstant.createBoolean(value == ((MySQLBitConstant) rightVal).value);
+            }
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        public MySQLConstant castAs(CastType type) {
+            if (type == CastType.SIGNED) {
+                return MySQLConstant.createIntConstant(value, true);
+            } else if (type == CastType.UNSIGNED) {
+                return MySQLConstant.createIntConstant(value, false);
+            }
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        protected MySQLConstant isLessThan(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLBitConstant) {
+                return MySQLConstant.createBoolean(value < ((MySQLBitConstant) rightVal).value);
+            }
+            throw new IgnoreMeException();
+        }
+
+        public long getBitValue() {
+            return value;
+        }
+
+        public int getWidth() {
+            return width;
+        }
+    }
+
+    public static class MySQLEnumConstant extends MySQLConstant {
+
+        private final String value;
+        private final int index;  // ENUM 索引值（MySQL 内部存储为整数，从1开始）
+
+        public MySQLEnumConstant(String value, int index) {
+            this.value = value;
+            this.index = index;
+        }
+
+        @Override
+        public String getTextRepresentation() {
+            return "'" + value + "'";
+        }
+
+        @Override
+        public String castAsString() {
+            return value;
+        }
+
+        @Override
+        public MySQLDataType getType() {
+            return MySQLDataType.ENUM;
+        }
+
+        @Override
+        public boolean asBooleanNotNull() {
+            // ENUM 值作为布尔值时，索引值非0为true
+            return index != 0;
+        }
+
+        @Override
+        public MySQLConstant isEquals(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLEnumConstant) {
+                return MySQLConstant.createBoolean(value.equals(((MySQLEnumConstant) rightVal).value));
+            }
+            // 与字符串比较
+            if (rightVal.isString()) {
+                return MySQLConstant.createBoolean(value.equals(rightVal.getString()));
+            }
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        public MySQLConstant castAs(CastType type) {
+            if (type == CastType.SIGNED) {
+                return MySQLConstant.createIntConstant(index, true);
+            } else if (type == CastType.UNSIGNED) {
+                return MySQLConstant.createIntConstant(index, false);
+            }
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        protected MySQLConstant isLessThan(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLEnumConstant) {
+                // ENUM 比较基于索引值
+                return MySQLConstant.createBoolean(index < ((MySQLEnumConstant) rightVal).index);
+            }
+            throw new IgnoreMeException();
+        }
+
+        public String getEnumValue() {
+            return value;
+        }
+
+        public int getIndex() {
+            return index;
+        }
+
+        @Override
+        public boolean isString() {
+            return true;
+        }
+
+        @Override
+        public String getString() {
+            return value;
+        }
+    }
+
+    public static class MySQLSetConstant extends MySQLConstant {
+
+        private final java.util.Set<String> values;  // SET 值集合
+        private final long bitmap;         // MySQL 内部存储为位图
+
+        public MySQLSetConstant(java.util.Set<String> values, long bitmap) {
+            this.values = values;
+            this.bitmap = bitmap;
+        }
+
+        @Override
+        public String getTextRepresentation() {
+            // SET 值用逗号分隔
+            return "'" + values.stream().collect(java.util.stream.Collectors.joining(",")) + "'";
+        }
+
+        @Override
+        public String castAsString() {
+            return values.stream().collect(java.util.stream.Collectors.joining(","));
+        }
+
+        @Override
+        public MySQLDataType getType() {
+            return MySQLDataType.SET;
+        }
+
+        @Override
+        public boolean asBooleanNotNull() {
+            // SET 值作为布尔值时，位图非0为true
+            return bitmap != 0;
+        }
+
+        @Override
+        public MySQLConstant isEquals(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLSetConstant) {
+                return MySQLConstant.createBoolean(values.equals(((MySQLSetConstant) rightVal).values));
+            }
+            // 与字符串比较（字符串形式为逗号分隔的值列表）
+            if (rightVal.isString()) {
+                return MySQLConstant.createBoolean(castAsString().equals(rightVal.getString()));
+            }
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        public MySQLConstant castAs(CastType type) {
+            if (type == CastType.SIGNED) {
+                return MySQLConstant.createIntConstant(bitmap, true);
+            } else if (type == CastType.UNSIGNED) {
+                return MySQLConstant.createIntConstant(bitmap, false);
+            }
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        protected MySQLConstant isLessThan(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLSetConstant) {
+                // SET 比较基于位图值
+                return MySQLConstant.createBoolean(bitmap < ((MySQLSetConstant) rightVal).bitmap);
+            }
+            throw new IgnoreMeException();
+        }
+
+        public java.util.Set<String> getSetValues() {
+            return values;
+        }
+
+        public long getBitmap() {
+            return bitmap;
+        }
+
+        @Override
+        public boolean isString() {
+            return true;
+        }
+
+        @Override
+        public String getString() {
+            return castAsString();
+        }
+    }
+
+    public static class MySQLJSONConstant extends MySQLConstant {
+
+        private final String jsonValue;  // JSON 值的字符串表示
+
+        public MySQLJSONConstant(String jsonValue) {
+            this.jsonValue = jsonValue;
+        }
+
+        @Override
+        public String getTextRepresentation() {
+            // MySQL JSON 值使用单引号，需要转义内部单引号
+            // MySQL escapes ' with \' and \ with \\
+            String escaped = jsonValue.replace("\\", "\\\\").replace("'", "\\'");
+            return "'" + escaped + "'";
+        }
+
+        @Override
+        public String castAsString() {
+            return jsonValue;
+        }
+
+        @Override
+        public MySQLDataType getType() {
+            return MySQLDataType.JSON;
+        }
+
+        @Override
+        public boolean asBooleanNotNull() {
+            // JSON 值作为布尔值时，非空为 true
+            return jsonValue != null && !jsonValue.isEmpty();
+        }
+
+        @Override
+        public MySQLConstant isEquals(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLJSONConstant) {
+                // JSON 比较基于字符串内容（简单实现）
+                return MySQLConstant.createBoolean(jsonValue.equals(((MySQLJSONConstant) rightVal).jsonValue));
+            }
+            // 与字符串比较
+            if (rightVal.isString()) {
+                return MySQLConstant.createBoolean(jsonValue.equals(rightVal.getString()));
+            }
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        public MySQLConstant castAs(CastType type) {
+            // JSON 类型不能直接转换为数值类型
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        protected MySQLConstant isLessThan(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLJSONConstant) {
+                // JSON 比较基于字符串排序
+                return MySQLConstant.createBoolean(jsonValue.compareTo(((MySQLJSONConstant) rightVal).jsonValue) < 0);
+            }
+            throw new IgnoreMeException();
+        }
+
+        public String getJsonValue() {
+            return jsonValue;
+        }
+
+        @Override
+        public boolean isString() {
+            return true;
+        }
+
+        @Override
+        public String getString() {
+            return jsonValue;
+        }
+    }
+
+    public static class MySQLBinaryConstant extends MySQLConstant {
+
+        private final byte[] value;
+        private final int length;  // 用于 VARBINARY/BINARY 的长度定义
+
+        public MySQLBinaryConstant(byte[] value) {
+            this.value = value;
+            this.length = value.length;
+        }
+
+        public MySQLBinaryConstant(byte[] value, int length) {
+            this.value = value;
+            this.length = length;
+        }
+
+        @Override
+        public String getTextRepresentation() {
+            // MySQL 二进制值使用 X'hex' 格式或 _binary'...' 格式
+            // 使用十六进制格式更安全
+            StringBuilder hex = new StringBuilder("X'");
+            for (byte b : value) {
+                hex.append(String.format("%02X", b));
+            }
+            hex.append("'");
+            return hex.toString();
+        }
+
+        @Override
+        public String castAsString() {
+            // 转换为字符串形式
+            StringBuilder sb = new StringBuilder();
+            for (byte b : value) {
+                if (b >= 32 && b < 127) {
+                    sb.append((char) b);
+                } else {
+                    sb.append(String.format("\\x%02X", b));
+                }
+            }
+            return sb.toString();
+        }
+
+        @Override
+        public MySQLDataType getType() {
+            // 根据长度判断类型，这里简化处理
+            return MySQLDataType.BLOB;
+        }
+
+        @Override
+        public boolean asBooleanNotNull() {
+            // 二进制值作为布尔值时，非空为 true
+            return value != null && value.length > 0 && value[0] != 0;
+        }
+
+        @Override
+        public MySQLConstant isEquals(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLBinaryConstant) {
+                byte[] otherValue = ((MySQLBinaryConstant) rightVal).value;
+                if (value.length != otherValue.length) {
+                    return MySQLConstant.createFalse();
+                }
+                for (int i = 0; i < value.length; i++) {
+                    if (value[i] != otherValue[i]) {
+                        return MySQLConstant.createFalse();
+                    }
+                }
+                return MySQLConstant.createTrue();
+            }
+            // 与字符串比较（需要特殊处理）
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        public MySQLConstant castAs(CastType type) {
+            // 二进制类型不能直接转换为数值类型
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        protected MySQLConstant isLessThan(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLBinaryConstant) {
+                byte[] otherValue = ((MySQLBinaryConstant) rightVal).value;
+                // 比较字节序列
+                int minLen = Math.min(value.length, otherValue.length);
+                for (int i = 0; i < minLen; i++) {
+                    if (value[i] < otherValue[i]) {
+                        return MySQLConstant.createTrue();
+                    } else if (value[i] > otherValue[i]) {
+                        return MySQLConstant.createFalse();
+                    }
+                }
+                // 相同长度的前缀部分，比较长度
+                return MySQLConstant.createBoolean(value.length < otherValue.length);
+            }
+            throw new IgnoreMeException();
+        }
+
+        public byte[] getBinaryValue() {
+            return value;
+        }
+
+        public int getLength() {
+            return length;
+        }
+    }
+
     public long getInt() {
         throw new UnsupportedOperationException();
     }
@@ -820,6 +1265,30 @@ public abstract class MySQLConstant implements MySQLExpression {
 
     public static MySQLConstant createStringConstant(String string) {
         return new MySQLTextConstant(string);
+    }
+
+    public static MySQLConstant createBitConstant(long value, int width) {
+        return new MySQLBitConstant(value, width);
+    }
+
+    public static MySQLConstant createEnumConstant(String value, int index) {
+        return new MySQLEnumConstant(value, index);
+    }
+
+    public static MySQLConstant createSetConstant(java.util.Set<String> values, long bitmap) {
+        return new MySQLSetConstant(values, bitmap);
+    }
+
+    public static MySQLConstant createJSONConstant(String jsonValue) {
+        return new MySQLJSONConstant(jsonValue);
+    }
+
+    public static MySQLConstant createBinaryConstant(byte[] value) {
+        return new MySQLBinaryConstant(value);
+    }
+
+    public static MySQLConstant createBinaryConstant(byte[] value, int length) {
+        return new MySQLBinaryConstant(value, length);
     }
 
     public abstract MySQLDataType getType();

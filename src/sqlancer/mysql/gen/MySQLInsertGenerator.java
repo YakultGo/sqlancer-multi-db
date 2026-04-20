@@ -1,9 +1,12 @@
 package sqlancer.mysql.gen;
 
 import java.sql.SQLException;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import sqlancer.IgnoreMeException;
 import sqlancer.Randomly;
 import sqlancer.common.query.ExpectedErrors;
 import sqlancer.common.query.SQLQueryAdapter;
@@ -28,7 +31,12 @@ public class MySQLInsertGenerator {
     }
 
     public static SQLQueryAdapter insertRow(MySQLGlobalState globalState) throws SQLException {
-        MySQLTable table = globalState.getSchema().getRandomTable();
+        // 获取随机表，过滤掉视图（视图不可插入）
+        MySQLTable table = globalState.getSchema().getRandomTableNonView();
+        if (table == null) {
+            // 没有非视图表可用，跳过插入
+            throw new IgnoreMeException();
+        }
         return insertRow(globalState, table);
     }
 
@@ -88,8 +96,12 @@ public class MySQLInsertGenerator {
                     sb.append(", ");
                 }
                 MySQLColumn column = columns.get(c);
-                if (testDates && isTemporalType(column.getType())) {
+                MySQLDataType colType = column.getType();
+                if (testDates && isTemporalType(colType)) {
                     sb.append(MySQLVisitor.asString(generateTemporalConstant(column)));
+                } else if (isBitEnumSetType(colType)) {
+                    // 为 BIT/ENUM/SET 类型生成适当的常量
+                    sb.append(MySQLVisitor.asString(generateBitEnumSetConstant(column, globalState.getRandomly())));
                 } else {
                     sb.append(MySQLVisitor.asString(gen.generateConstant()));
                 }
@@ -111,6 +123,118 @@ public class MySQLInsertGenerator {
             return true;
         default:
             return false;
+        }
+    }
+
+    private static boolean isBitEnumSetType(MySQLDataType type) {
+        return type == MySQLDataType.BIT || type == MySQLDataType.ENUM || type == MySQLDataType.SET
+                || type == MySQLDataType.JSON || type == MySQLDataType.BINARY || type == MySQLDataType.VARBINARY
+                || type == MySQLDataType.BLOB;
+    }
+
+    /**
+     * 为 BIT/ENUM/SET/JSON/BINARY 类型列生成常量值
+     */
+    private static MySQLConstant generateBitEnumSetConstant(MySQLColumn column, Randomly r) {
+        switch (column.getType()) {
+        case BIT:
+            int width = column.getBitWidth();
+            if (width <= 0) width = 1;  // 默认宽度
+            long maxValue = (1L << Math.min(width, 63)) - 1;  // 限制在 63 位以内
+            long bitValue = r.getLong(0, maxValue + 1);
+            return MySQLConstant.createBitConstant(bitValue, width);
+        case ENUM:
+            List<String> enumValues = column.getEnumValues();
+            if (enumValues == null || enumValues.isEmpty()) {
+                throw new IgnoreMeException();
+            }
+            String enumValue = Randomly.fromList(enumValues);
+            int enumIndex = enumValues.indexOf(enumValue) + 1;  // MySQL ENUM 索引从 1 开始
+            return MySQLConstant.createEnumConstant(enumValue, enumIndex);
+        case SET:
+            List<String> setValues = column.getSetValues();
+            if (setValues == null || setValues.isEmpty()) {
+                throw new IgnoreMeException();
+            }
+            // 选择一个或多个值组成 SET
+            Set<String> selectedValues = new HashSet<>(Randomly.nonEmptySubset(setValues));
+            long bitmap = 0;
+            for (String val : selectedValues) {
+                bitmap |= (1L << setValues.indexOf(val));
+            }
+            return MySQLConstant.createSetConstant(selectedValues, bitmap);
+        case JSON:
+            // 生成简单的 JSON 值
+            return MySQLConstant.createJSONConstant(generateRandomJSONValue(r));
+        case BINARY:
+        case VARBINARY:
+        case BLOB:
+            // 生成二进制数据
+            int binaryLength = 1 + Randomly.smallNumber();
+            byte[] binaryValue = new byte[binaryLength];
+            for (int i = 0; i < binaryLength; i++) {
+                binaryValue[i] = (byte) r.getInteger(Byte.MIN_VALUE, Byte.MAX_VALUE + 1);
+            }
+            return MySQLConstant.createBinaryConstant(binaryValue);
+        default:
+            throw new AssertionError(column.getType());
+        }
+    }
+
+    /**
+     * 生成随机 JSON 值用于插入
+     */
+    private static String generateRandomJSONValue(Randomly r) {
+        int depth = Randomly.smallNumber();
+        return generateRandomJSONRecursive(r, depth);
+    }
+
+    private static String generateRandomJSONRecursive(Randomly r, int maxDepth) {
+        if (maxDepth <= 0) {
+            // 生成基本值
+            switch (Randomly.fromOptions(0, 1, 2, 3)) {
+            case 0:
+                return "null";
+            case 1:
+                return String.valueOf(r.getInteger());
+            case 2:
+                String str = r.getString().replace("\"", "\\\"").replace("\\", "\\\\");
+                return "\"" + str + "\"";
+            case 3:
+                return Randomly.fromOptions("true", "false");
+            default:
+                return "null";
+            }
+        }
+
+        // 生成对象或数组
+        switch (Randomly.fromOptions(0, 1)) {
+        case 0:  // JSON 对象
+            int numPairs = 1 + Randomly.smallNumber();
+            StringBuilder obj = new StringBuilder("{");
+            for (int i = 0; i < numPairs; i++) {
+                if (i > 0) {
+                    obj.append(", ");
+                }
+                String key = "k" + i;
+                obj.append("\"").append(key).append("\": ");
+                obj.append(generateRandomJSONRecursive(r, maxDepth - 1));
+            }
+            obj.append("}");
+            return obj.toString();
+        case 1:  // JSON 数组
+            int numElements = 1 + Randomly.smallNumber();
+            StringBuilder arr = new StringBuilder("[");
+            for (int i = 0; i < numElements; i++) {
+                if (i > 0) {
+                    arr.append(", ");
+                }
+                arr.append(generateRandomJSONRecursive(r, maxDepth - 1));
+            }
+            arr.append("]");
+            return arr.toString();
+        default:
+            return "{}";
         }
     }
 

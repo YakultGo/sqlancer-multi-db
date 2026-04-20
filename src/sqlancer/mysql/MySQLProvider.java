@@ -37,6 +37,8 @@ import sqlancer.mysql.gen.datadef.MySQLIndexGenerator;
 import sqlancer.mysql.gen.tblmaintenance.MySQLAnalyzeTable;
 import sqlancer.mysql.gen.tblmaintenance.MySQLCheckTable;
 import sqlancer.mysql.gen.tblmaintenance.MySQLChecksum;
+import sqlancer.mysql.gen.MySQLDropViewGenerator;
+import sqlancer.mysql.gen.MySQLViewGenerator;
 import sqlancer.mysql.gen.tblmaintenance.MySQLOptimize;
 import sqlancer.mysql.gen.tblmaintenance.MySQLRepair;
 
@@ -64,7 +66,9 @@ public class MySQLProvider extends SQLProviderAdapter<MySQLGlobalState, MySQLOpt
                         + "'")), //
         UPDATE(MySQLUpdateGenerator::create), //
         DELETE(MySQLDeleteGenerator::delete), //
-        DROP_INDEX(MySQLDropIndex::generate);
+        DROP_INDEX(MySQLDropIndex::generate), //
+        CREATE_VIEW(MySQLViewGenerator::create), //
+        DROP_VIEW(MySQLDropViewGenerator::drop);
 
         private final SQLQueryProvider<MySQLGlobalState> sqlQueryProvider;
 
@@ -130,6 +134,12 @@ public class MySQLProvider extends SQLProviderAdapter<MySQLGlobalState, MySQLOpt
             break;
         case DELETE:
             nrPerformed = r.getInteger(0, 10);
+            break;
+        case CREATE_VIEW:
+            nrPerformed = globalState.getDbmsSpecificOptions().testViews() ? r.getInteger(0, 2) : 0;
+            break;
+        case DROP_VIEW:
+            nrPerformed = globalState.getDbmsSpecificOptions().testViews() ? r.getInteger(0, 1) : 0;
             break;
         default:
             throw new AssertionError(a);
@@ -229,6 +239,7 @@ public class MySQLProvider extends SQLProviderAdapter<MySQLGlobalState, MySQLOpt
     @Override
     public boolean addRowsToAllTables(MySQLGlobalState globalState) throws Exception {
         List<MySQLTable> tablesNoRow = globalState.getSchema().getDatabaseTables().stream()
+                .filter(t -> !t.isView())  // 过滤掉视图
                 .filter(t -> t.getNrRows(globalState) == 0).collect(Collectors.toList());
         for (MySQLTable table : tablesNoRow) {
             SQLQueryAdapter queryAddRows = MySQLInsertGenerator.insertRow(globalState, table);

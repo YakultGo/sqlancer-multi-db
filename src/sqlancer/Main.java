@@ -40,7 +40,9 @@ import sqlancer.common.query.SQLancerResultSet;
 import sqlancer.databend.DatabendProvider;
 import sqlancer.doris.DorisProvider;
 import sqlancer.duckdb.DuckDBProvider;
+import sqlancer.gaussdba.GaussDBAProvider;
 import sqlancer.gaussdbm.GaussDBMProvider;
+import sqlancer.gaussdbpg.GaussDBPGProvider;
 import sqlancer.h2.H2Provider;
 import sqlancer.hive.HiveProvider;
 import sqlancer.hsqldb.HSQLDBProvider;
@@ -797,8 +799,12 @@ public final class Main {
         }
         if ("mysql".equals(parsedCommand)) {
             printMySQLOracleHelp();
+        } else if ("gaussdb-a".equals(parsedCommand)) {
+            GaussDBAProvider.printOracleHelp();
         } else if ("gaussdb-m".equals(parsedCommand)) {
             GaussDBMProvider.printOracleHelp();
+        } else if ("gaussdb-pg".equals(parsedCommand)) {
+            GaussDBPGProvider.printOracleHelp();
         }
     }
 
@@ -996,7 +1002,9 @@ public final class Main {
             providers.add(new DatabendProvider());
             providers.add(new DorisProvider());
             providers.add(new DuckDBProvider());
+            providers.add(new GaussDBAProvider());
             providers.add(new GaussDBMProvider());
+            providers.add(new GaussDBPGProvider());
             providers.add(new H2Provider());
             providers.add(new HiveProvider());
             providers.add(new HSQLDBProvider());

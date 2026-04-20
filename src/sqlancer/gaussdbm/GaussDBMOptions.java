@@ -17,6 +17,9 @@ public class GaussDBMOptions implements DBMSSpecificOptions<GaussDBMOracleFactor
     @Parameter(names = "--oracle", description = "Specifies which test oracle(s) should be used for GaussDB-M")
     public List<GaussDBMOracleFactory> oracles = Arrays.asList(GaussDBMOracleFactory.QUERY_PARTITIONING);
 
+    @Parameter(names = "--target-database", description = "Target database name (M-compatible database)")
+    public String targetDatabase = null;
+
     @Override
     public List<GaussDBMOracleFactory> getTestOracleFactory() {
         return oracles;
