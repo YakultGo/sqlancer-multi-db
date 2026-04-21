@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.1.74 | 2026-04-21
+- 集成验证完成：GaussDB-M（M兼容模式）全量通过集成测试，14个 oracle 全部可用
+- 实现MySQL风格自动数据库创建：GaussDBMProvider 自动创建 M-compatible 测试数据库（`CREATE DATABASE ... DBCOMPATIBILITY 'M'`），对齐 MySQL/GaussDB-A 方式，无需额外参数
+- 修复 schema 发现适配 M兼容模式：GaussDBMSchema 使用 MySQL 风格 `SHOW TABLES`/`SHOW COLUMNS FROM` 作为首选方案，并保留 information_schema/pg_tables 作为 fallback
+- 修复 generateDatabase 表计数问题：`GaussDBMProvider.generateDatabase()` 在每次 CREATE TABLE 后调用 `updateSchema()`，避免重复表名
+- 新增布尔值规范化处理：`GaussDBMBooleanNormalizer` 将 M兼容模式返回的 't'/'f' 规范化为 1/0，确保 TLP oracle 结果比较一致性
+- 修复 GaussDBToStringVisitor 子查询输出：为 SELECT 类型表达式添加括号包裹，解决 CODDTEST 等 oracle 生成的标量子查询语法错误
+- 全量类型支持验证：INT/VARCHAR/FLOAT/DOUBLE/DECIMAL/DATE/TIME/DATETIME/TIMESTAMP/YEAR 10种数据类型在 INSERT/CREATE TABLE/表达式生成中均正常工作
+- 验证结果：GaussDB-M 执行 192 查询（27 queries/s，成功率 100%），14 个 oracle（NOREC/TLP_WHERE/HAVING/GROUP_BY/AGGREGATE/DISTINCT/PQS/CERT/FUZZER/DQP/DQE/EET/CODDTEST/QUERY_PARTITIONING）全部稳定运行
+
 ## v0.1.73 | 2026-04-21
 - 集成验证修复：MySQL、PostgreSQL、GaussDB-PG、GaussDB-A 全面通过集成测试
 - 修复 MySQL ALTER TABLE 对视图执行问题：使用 `getRandomTableNoViewOrBailout()` 替代 `getRandomTable()`，确保只在 BASE TABLE 上执行 ALTER TABLE

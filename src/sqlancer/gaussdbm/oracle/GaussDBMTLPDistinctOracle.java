@@ -7,6 +7,7 @@ import java.util.List;
 import sqlancer.ComparatorHelper;
 import sqlancer.IgnoreMeException;
 import sqlancer.common.oracle.TestOracle;
+import sqlancer.gaussdbm.GaussDBMBooleanNormalizer;
 import sqlancer.gaussdbm.GaussDBMGlobalState;
 import sqlancer.gaussdbm.GaussDBToStringVisitor;
 import sqlancer.gaussdbm.ast.GaussDBSelect.SelectType;
@@ -31,6 +32,8 @@ public class GaussDBMTLPDistinctOracle extends GaussDBMTLPBase implements TestOr
         String originalQueryString = GaussDBToStringVisitor.asString(select);
         generatedQueryString = originalQueryString;
         List<String> resultSet = ComparatorHelper.getResultSetFirstColumnAsString(originalQueryString, errors, state);
+        // Normalize boolean values for M-compatibility mode
+        resultSet = GaussDBMBooleanNormalizer.normalizeList(resultSet);
 
         select.setWhereClause(predicate);
         String firstQueryString = GaussDBToStringVisitor.asString(select);
@@ -41,6 +44,8 @@ public class GaussDBMTLPDistinctOracle extends GaussDBMTLPBase implements TestOr
         List<String> combinedString = new ArrayList<>();
         List<String> secondResultSet = ComparatorHelper.getCombinedResultSetNoDuplicates(firstQueryString,
                 secondQueryString, thirdQueryString, combinedString, true, state, errors);
+        // Normalize boolean values for M-compatibility mode
+        secondResultSet = GaussDBMBooleanNormalizer.normalizeList(secondResultSet);
         try {
             ComparatorHelper.assumeResultSetsAreEqual(resultSet, secondResultSet, originalQueryString, combinedString,
                     state);

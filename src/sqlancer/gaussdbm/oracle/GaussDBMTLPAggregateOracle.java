@@ -44,6 +44,54 @@ public class GaussDBMTLPAggregateOracle extends GaussDBMTLPBase implements TestO
         aggregateCheck();
     }
 
+    private String normalizeBooleanResult(String result) {
+        // GaussDB M-compatibility mode: boolean values can be returned as 't'/'f' (PG style)
+        // or 1/0 (MySQL style). Normalize to 1/0 for comparison.
+        if (result == null) {
+            return null;
+        }
+        String trimmed = result.trim();
+        if ("t".equals(trimmed) || "true".equalsIgnoreCase(trimmed)) {
+            return "1";
+        }
+        if ("f".equals(trimmed) || "false".equalsIgnoreCase(trimmed)) {
+            return "0";
+        }
+        return result;
+    }
+
+    private boolean compareResults(String firstResult, String secondResult) {
+        String first = normalizeBooleanResult(firstResult);
+        String second = normalizeBooleanResult(secondResult);
+
+        // Handle 0/NULL equivalence for certain aggregate functions
+        boolean zeroNullEqual = ("0".equals(first) && second == null)
+                || (first == null && "0".equals(second));
+        if (zeroNullEqual) {
+            return true;
+        }
+
+        if (first == null && second != null || first != null && second == null) {
+            return false;
+        }
+
+        if (first == null && second == null) {
+            return true;
+        }
+
+        // Direct string comparison
+        if (first.contentEquals(second)) {
+            return true;
+        }
+
+        // Floating point comparison
+        if (ComparatorHelper.isEqualDouble(first, second)) {
+            return true;
+        }
+
+        return false;
+    }
+
     protected void aggregateCheck() throws SQLException {
         GaussDBAggregateFunction[] allowedFuncs = { GaussDBAggregateFunction.COUNT, GaussDBAggregateFunction.SUM,
                 GaussDBAggregateFunction.MIN, GaussDBAggregateFunction.MAX };
@@ -84,20 +132,15 @@ public class GaussDBMTLPAggregateOracle extends GaussDBMTLPBase implements TestO
         String secondQueryStr = String.format("-- %s;\n-- result: %s", metamorphicQuery, secondResult);
         state.getState().getLocalState().log(String.format("%s\n%s", firstQueryStr, secondQueryStr));
 
-        boolean zeroNullEqual = ("0".equals(firstResult) && secondResult == null)
-                || (firstResult == null && "0".equals(secondResult));
-        if (zeroNullEqual) {
-            return;
-        }
         if (isExtremeFloatMismatch(firstResult, secondResult)) {
             throw new IgnoreMeException();
         }
-        if (firstResult == null && secondResult != null || firstResult != null && secondResult == null
-                || firstResult != null && !firstResult.contentEquals(secondResult)
-                        && !ComparatorHelper.isEqualDouble(firstResult, secondResult)) {
-            if (secondResult != null && secondResult.contains("Inf")) {
-                throw new IgnoreMeException();
-            }
+
+        if (secondResult != null && secondResult.contains("Inf")) {
+            throw new IgnoreMeException();
+        }
+
+        if (!compareResults(firstResult, secondResult)) {
             throw new AssertionError(String.format("the results mismatch!\n%s\n%s", firstQueryStr, secondQueryStr));
         }
     }
