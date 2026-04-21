@@ -16,6 +16,9 @@ public class PostgresOptions implements DBMSSpecificOptions<PostgresOracleFactor
     public static final int DEFAULT_PORT = 5432;
     private static Boolean defaultTestTablespaces;
 
+    @Parameter(names = { "--help", "-h" }, description = "Lists all supported options for the PostgreSQL command", help = true, hidden = true)
+    public boolean help;
+
     public enum CoveragePolicy {
         BALANCED, CONSERVATIVE, AGGRESSIVE
     }
@@ -23,7 +26,7 @@ public class PostgresOptions implements DBMSSpecificOptions<PostgresOracleFactor
     @Parameter(names = "--bulk-insert", description = "Specifies whether INSERT statements should be issued in bulk", arity = 1)
     public boolean allowBulkInsert;
 
-    @Parameter(names = "--oracle", description = "Specifies which test oracle should be used for PostgreSQL")
+    @Parameter(names = "--oracle", description = "Specifies which test oracle should be used, Options: [AGGREGATE, CERT, CODDTEST, DISTINCT, DQE, DQP, EET, FUZZER, GROUP_BY, HAVING, NOREC, PQS, QUERY_PARTITIONING, TLP_WHERE]")
     public List<PostgresOracleFactory> oracle = Arrays.asList(PostgresOracleFactory.QUERY_PARTITIONING);
 
     @Parameter(names = "--connection-timeout", description = "Timeout in seconds for connecting to the server", arity = 1)
@@ -92,6 +95,10 @@ public class PostgresOptions implements DBMSSpecificOptions<PostgresOracleFactor
     @Override
     public List<PostgresOracleFactory> getTestOracleFactory() {
         return oracle;
+    }
+
+    public boolean isHelp() {
+        return help;
     }
 
     public String getTablespacePath() {

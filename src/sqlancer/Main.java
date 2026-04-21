@@ -8,12 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.lang.reflect.Field;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -28,7 +23,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.JCommander.Builder;
-import com.beust.jcommander.Parameter;
 
 import sqlancer.citus.CitusProvider;
 import sqlancer.clickhouse.ClickHouseProvider;
@@ -41,8 +35,11 @@ import sqlancer.databend.DatabendProvider;
 import sqlancer.doris.DorisProvider;
 import sqlancer.duckdb.DuckDBProvider;
 import sqlancer.gaussdba.GaussDBAProvider;
+import sqlancer.gaussdba.GaussDBAOptions;
 import sqlancer.gaussdbm.GaussDBMProvider;
+import sqlancer.gaussdbm.GaussDBMOptions;
 import sqlancer.gaussdbpg.GaussDBPGProvider;
+import sqlancer.gaussdbpg.GaussDBPGOptions;
 import sqlancer.h2.H2Provider;
 import sqlancer.hive.HiveProvider;
 import sqlancer.hsqldb.HSQLDBProvider;
@@ -50,9 +47,9 @@ import sqlancer.mariadb.MariaDBProvider;
 import sqlancer.materialize.MaterializeProvider;
 import sqlancer.mysql.MySQLProvider;
 import sqlancer.mysql.MySQLOptions;
-import sqlancer.mysql.MySQLOracleFactory;
 import sqlancer.oceanbase.OceanBaseProvider;
 import sqlancer.postgres.PostgresProvider;
+import sqlancer.postgres.PostgresOptions;
 import sqlancer.presto.PrestoProvider;
 import sqlancer.questdb.QuestDBProvider;
 import sqlancer.sqlite3.SQLite3Provider;
@@ -645,8 +642,6 @@ public final class Main {
                     jc.usage();
                 }
             }
-            printCommandSpecificHelp(jc.getParsedCommand());
-            printOracleOptionsSummary(jc.getParsedCommand(), nameToProvider);
             return options.getErrorExitCode();
         }
 
@@ -790,185 +785,19 @@ public final class Main {
         if (cmd instanceof MySQLOptions) {
             return ((MySQLOptions) cmd).isHelp();
         }
+        if (cmd instanceof PostgresOptions) {
+            return ((PostgresOptions) cmd).isHelp();
+        }
+        if (cmd instanceof GaussDBAOptions) {
+            return ((GaussDBAOptions) cmd).isHelp();
+        }
+        if (cmd instanceof GaussDBPGOptions) {
+            return ((GaussDBPGOptions) cmd).isHelp();
+        }
+        if (cmd instanceof GaussDBMOptions) {
+            return ((GaussDBMOptions) cmd).isHelp();
+        }
         return false;
-    }
-
-    private static void printCommandSpecificHelp(String parsedCommand) {
-        if (parsedCommand == null) {
-            return;
-        }
-        if ("mysql".equals(parsedCommand)) {
-            printMySQLOracleHelp();
-        } else if ("gaussdb-a".equals(parsedCommand)) {
-            GaussDBAProvider.printOracleHelp();
-        } else if ("gaussdb-m".equals(parsedCommand)) {
-            GaussDBMProvider.printOracleHelp();
-        } else if ("gaussdb-pg".equals(parsedCommand)) {
-            GaussDBPGProvider.printOracleHelp();
-        }
-    }
-
-    private static void printMySQLOracleHelp() {
-        System.out.println();
-        System.out.println("MySQL --oracle choices: " + java.util.Arrays.toString(MySQLOracleFactory.values()));
-    }
-
-    private static void printOracleOptionsSummary(String parsedCommand, Map<String, DBMSExecutorFactory<?, ?, ?>> nameToProvider) {
-        List<String> commands = new ArrayList<>(nameToProvider.keySet());
-        commands.sort(Comparator.naturalOrder());
-        List<String> blocks = new ArrayList<>();
-
-        for (String cmdName : commands) {
-            if (parsedCommand != null && !parsedCommand.equals(cmdName)) {
-                continue;
-            }
-            DBMSExecutorFactory<?, ?, ?> f = nameToProvider.get(cmdName);
-            if (f == null) {
-                continue;
-            }
-            Object command = f.getCommand();
-            OracleHelpBlock block = OracleHelpBlock.from(cmdName, command);
-            if (block != null) {
-                blocks.add(block.render());
-            }
-        }
-
-        if (blocks.isEmpty()) {
-            return;
-        }
-
-        System.out.println();
-        System.out.println("Oracle Options Summary:");
-        for (String block : blocks) {
-            System.out.print(block);
-        }
-    }
-
-    private static final class OracleHelpBlock {
-        private final String commandName;
-        private final String description;
-        private final String options;
-        private final String defaultValue;
-
-        private OracleHelpBlock(String commandName, String description, String options, String defaultValue) {
-            this.commandName = commandName;
-            this.description = description;
-            this.options = options;
-            this.defaultValue = defaultValue;
-        }
-
-        static OracleHelpBlock from(String commandName, Object command) {
-            if (command == null) {
-                return null;
-            }
-            Field oracleField = findOracleField(command.getClass());
-            if (oracleField == null) {
-                return null;
-            }
-            Parameter p = oracleField.getAnnotation(Parameter.class);
-            if (p == null) {
-                return null;
-            }
-
-            Class<? extends Enum<?>> enumClass = resolveOracleEnumClass(oracleField);
-            if (enumClass == null) {
-                return null;
-            }
-
-            String description = p.description();
-            if (description == null || description.isBlank()) {
-                description = "Specifies which test oracle should be used";
-            }
-            String options = buildSortedEnumOptions(enumClass);
-            String defaultValue = resolveDefaultValue(command, oracleField);
-            if (defaultValue == null || defaultValue.isBlank()) {
-                defaultValue = "<unspecified>";
-            }
-            return new OracleHelpBlock(commandName, description, options, defaultValue);
-        }
-
-        private static String buildSortedEnumOptions(Class<? extends Enum<?>> enumClass) {
-            Enum<?>[] constants = enumClass.getEnumConstants();
-            if (constants == null || constants.length == 0) {
-                return "[]";
-            }
-            String[] names = new String[constants.length];
-            for (int i = 0; i < constants.length; i++) {
-                names[i] = constants[i].name();
-            }
-            Arrays.sort(names);
-            return "[" + String.join(", ", names) + "]";
-        }
-
-        private static Field findOracleField(Class<?> cls) {
-            for (Field f : cls.getDeclaredFields()) {
-                Parameter p = f.getAnnotation(Parameter.class);
-                if (p == null) {
-                    continue;
-                }
-                for (String n : p.names()) {
-                    if ("--oracle".equals(n)) {
-                        return f;
-                    }
-                }
-            }
-            return null;
-        }
-
-        @SuppressWarnings("unchecked")
-        private static Class<? extends Enum<?>> resolveOracleEnumClass(Field oracleField) {
-            Class<?> raw = oracleField.getType();
-            if (raw.isEnum()) {
-                return (Class<? extends Enum<?>>) raw;
-            }
-            if (List.class.isAssignableFrom(raw)) {
-                Type t = oracleField.getGenericType();
-                if (t instanceof ParameterizedType) {
-                    Type[] args = ((ParameterizedType) t).getActualTypeArguments();
-                    if (args.length == 1 && args[0] instanceof Class) {
-                        Class<?> arg = (Class<?>) args[0];
-                        if (arg.isEnum()) {
-                            return (Class<? extends Enum<?>>) arg;
-                        }
-                    }
-                }
-            }
-            return null;
-        }
-
-        private static String resolveDefaultValue(Object command, Field oracleField) {
-            try {
-                boolean old = oracleField.canAccess(command);
-                oracleField.setAccessible(true);
-                Object value = oracleField.get(command);
-                if (!old) {
-                    oracleField.setAccessible(false);
-                }
-                if (value == null) {
-                    return null;
-                }
-                if (value instanceof List) {
-                    return String.valueOf(value);
-                }
-                if (value instanceof Enum<?>) {
-                    return "[" + value + "]";
-                }
-                return String.valueOf(value);
-            } catch (Exception e) {
-                return null;
-            }
-        }
-
-        String render() {
-            StringBuilder sb = new StringBuilder();
-            sb.append("  ").append(commandName).append(":\n");
-            sb.append("        Options:\n");
-            sb.append("          --oracle\n");
-            sb.append("            ").append(description).append(",\n");
-            sb.append("            Options: ").append(options).append("\n");
-            sb.append("            Default: ").append(defaultValue).append(",\n");
-            return sb.toString();
-        }
     }
 
     /**

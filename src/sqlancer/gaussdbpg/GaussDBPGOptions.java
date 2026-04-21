@@ -11,10 +11,10 @@ import sqlancer.DBMSSpecificOptions;
 @Parameters(separators = "=", commandDescription = "GaussDB PG Compatibility Mode")
 public class GaussDBPGOptions implements DBMSSpecificOptions<GaussDBPGOracleFactory> {
 
-    @Parameter(names = { "--help", "-h" }, description = "Lists all supported options for GaussDB PG", help = true)
+    @Parameter(names = { "--help", "-h" }, description = "Lists all supported options for GaussDB PG", help = true, hidden = true)
     public boolean help;
 
-    @Parameter(names = "--oracle", description = "Specifies which test oracle(s) should be used for GaussDB PG")
+    @Parameter(names = "--oracle", description = "Specifies which test oracle should be used, Options: [AGGREGATE, CERT, DISTINCT, DQE, DQP, EET, FUZZER, GROUP_BY, HAVING, NOREC, PQS, QUERY_PARTITIONING, TLP_WHERE]")
     public List<GaussDBPGOracleFactory> oracles = Arrays.asList(GaussDBPGOracleFactory.QUERY_PARTITIONING);
 
     @Parameter(names = "--enable-time-types", description = "Enable DATE, TIME, TIMESTAMP types")
