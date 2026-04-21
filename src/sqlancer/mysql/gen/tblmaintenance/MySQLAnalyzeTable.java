@@ -58,6 +58,11 @@ public class MySQLAnalyzeTable {
     // [WITH N BUCKETS]
     private void updateHistogram() {
         MySQLTable table = Randomly.fromList(tables);
+        if (table.getColumns().isEmpty()) {
+            // Skip histogram update for tables with no columns
+            analyzeWithoutHistogram();
+            return;
+        }
         sb.append(table.getName());
         sb.append(" UPDATE HISTOGRAM ON ");
         List<MySQLColumn> columns = table.getRandomNonEmptyColumnSubset();
@@ -74,6 +79,11 @@ public class MySQLAnalyzeTable {
     // DROP HISTOGRAM ON col_name [, col_name] ...
     private void dropHistogram() {
         MySQLTable table = Randomly.fromList(tables);
+        if (table.getColumns().isEmpty()) {
+            // Skip histogram drop for tables with no columns
+            analyzeWithoutHistogram();
+            return;
+        }
         sb.append(table.getName());
         sb.append(" DROP HISTOGRAM ON ");
         List<MySQLColumn> columns = table.getRandomNonEmptyColumnSubset();

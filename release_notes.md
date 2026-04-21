@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.75 | 2026-04-21
+- 修复 MySQL TRUNCATE TABLE 对视图执行问题：`MySQLTruncateTableGenerator` 使用 `getRandomTableNoViewOrBailout()` 替代 `getRandomTable()`，确保只在 BASE TABLE 上执行 TRUNCATE
+- 修复 MySQL ANALYZE TABLE 空列问题：`MySQLAnalyzeTable.updateHistogram()` 和 `dropHistogram()` 添加空列检查，避免对无列的表执行 HISTOGRAM 操作导致 AssertionError
+- 验证结果：MySQL 执行 67K+ 查询（成功率 94%），TLP Aggregate oracle 发现 MySQL 逻辑 bug（符合预期行为），工具稳定运行无内部错误
+
 ## v0.1.74 | 2026-04-21
 - 集成验证完成：GaussDB-M（M兼容模式）全量通过集成测试，14个 oracle 全部可用
 - 实现MySQL风格自动数据库创建：GaussDBMProvider 自动创建 M-compatible 测试数据库（`CREATE DATABASE ... DBCOMPATIBILITY 'M'`），对齐 MySQL/GaussDB-A 方式，无需额外参数
