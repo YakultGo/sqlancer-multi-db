@@ -43,6 +43,7 @@ import sqlancer.postgres.gen.PostgresExplainGenerator;
 import sqlancer.postgres.gen.PostgresIndexGenerator;
 import sqlancer.postgres.gen.PostgresInsertGenerator;
 import sqlancer.postgres.gen.PostgresNotifyGenerator;
+import sqlancer.postgres.gen.PostgresPartitionGenerator;
 import sqlancer.postgres.gen.PostgresRandomQueryGenerator;
 import sqlancer.postgres.gen.PostgresReindexGenerator;
 import sqlancer.postgres.gen.PostgresSequenceGenerator;
@@ -106,6 +107,8 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         DELETE(PostgresDeleteGenerator::create), //
         DISCARD(PostgresDiscardGenerator::create), //
         DROP_INDEX(PostgresDropIndexGenerator::create), //
+        CREATE_PARTITION(PostgresPartitionGenerator::createPartition), //
+        DETACH_PARTITION(PostgresPartitionGenerator::detachPartition), //
         INSERT(PostgresInsertGenerator::insert), //
         UPDATE(PostgresUpdateGenerator::create), //
         TRUNCATE(PostgresTruncateGenerator::create), //
@@ -165,6 +168,12 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         case DISCARD:
         case DROP_INDEX:
             nrPerformed = r.getInteger(0, 5);
+            break;
+        case CREATE_PARTITION:
+            nrPerformed = PostgresPartitionGenerator.hasCreatePartitionCandidate(globalState) ? r.getInteger(0, 3) : 0;
+            break;
+        case DETACH_PARTITION:
+            nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
             break;
         case COMMIT:
             nrPerformed = r.getInteger(0, 0);
@@ -433,8 +442,23 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
                 SQLQueryAdapter createTable = PostgresTableGenerator.generate(tableName, globalState.getSchema(),
                         globalState);
                 globalState.executeStatement(createTable);
+                createInitialPartitions(globalState);
             } catch (IgnoreMeException e) {
 
+            }
+        }
+    }
+
+    private static void createInitialPartitions(PostgresGlobalState globalState) throws Exception {
+        if (!PostgresPartitionGenerator.hasCreatePartitionCandidate(globalState)) {
+            return;
+        }
+        int nrPartitions = Randomly.fromOptions(1, 2);
+        for (int i = 0; i < nrPartitions; i++) {
+            try {
+                globalState.executeStatement(PostgresPartitionGenerator.createPartition(globalState));
+            } catch (IgnoreMeException ignored) {
+                return;
             }
         }
     }
@@ -483,6 +507,8 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         case VACUUM:
         case CLUSTER:
         case REINDEX:
+        case CREATE_PARTITION:
+        case DETACH_PARTITION:
             return true;
         default:
             return false;

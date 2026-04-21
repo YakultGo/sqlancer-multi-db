@@ -472,11 +472,13 @@ public final class Main {
                 } else {
                     reproducer = provider.generateAndTestDatabase(state);
                 }
-                try {
-                    logger.getCurrentFileWriter().close();
-                    logger.currentFileWriter = null;
-                } catch (IOException e) {
-                    throw new AssertionError(e);
+                if (options.logEachSelect() && logger.currentFileWriter != null) {
+                    try {
+                        logger.currentFileWriter.close();
+                        logger.currentFileWriter = null;
+                    } catch (IOException e) {
+                        throw new AssertionError(e);
+                    }
                 }
 
                 if (options.serializeReproduceState() && reproducer != null) {

@@ -41,6 +41,8 @@ class PostgresBombardTest {
         assertTrue(PostgresProvider.isExcludedBombardAction(PostgresProvider.Action.VACUUM));
         assertTrue(PostgresProvider.isExcludedBombardAction(PostgresProvider.Action.CLUSTER));
         assertTrue(PostgresProvider.isExcludedBombardAction(PostgresProvider.Action.REINDEX));
+        assertTrue(PostgresProvider.isExcludedBombardAction(PostgresProvider.Action.CREATE_PARTITION));
+        assertTrue(PostgresProvider.isExcludedBombardAction(PostgresProvider.Action.DETACH_PARTITION));
 
         assertFalse(PostgresProvider.isExcludedBombardAction(PostgresProvider.Action.INSERT));
         assertFalse(PostgresProvider.isExcludedBombardAction(PostgresProvider.Action.UPDATE));

@@ -2,6 +2,7 @@
 
 ## v0.1.75 | 2026-04-21
 - 新增 PostgreSQL 表数量参数：`--pg-tables=N` 控制测试数据库中创建的表数量（默认 3 张），此前为硬编码随机 4-6 张
+- 补齐 PostgreSQL 分区表基础 DDL 覆盖：schema 识别父/子分区关系与简单分区 key；新增合法 `CREATE TABLE ... PARTITION OF ... FOR VALUES ...`（覆盖 RANGE/LIST/HASH，RANGE/LIST 支持 DEFAULT 分区）与 `ALTER TABLE ... DETACH PARTITION` 生成；建表阶段主动为父分区表补 child partition；`TRUNCATE` 低概率覆盖 `ONLY` 父分区表；bombard 模式排除分区 DDL 以避免压测锁干扰
 
 ## v0.1.74 | 2026-04-21
 - 新增 PostgreSQL bombard 并发压测模式：`postgres --bombard=true --bombard-workers=N` 支持单 database 多 worker 并发执行随机 SQL；该模式独立于 oracle，复用 PostgreSQL 现有 mutator 权重并混合随机 SELECT，同时排除 `DISCARD`、`TRUNCATE`、`VACUUM`、`CLUSTER`、`REINDEX`、`CREATE_TABLESPACE` 等不适合长跑并发压测的高风险动作
