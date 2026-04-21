@@ -8,6 +8,7 @@ target/
 .idea
 SQLancer.iml
 dependency-reduced-pom.xml
+.flattened-pom.xml
 database0.db
 databaseconnectiontest.db
 database*.log
