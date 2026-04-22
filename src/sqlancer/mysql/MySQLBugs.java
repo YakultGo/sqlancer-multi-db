@@ -8,16 +8,19 @@ public final class MySQLBugs {
     public static boolean bug99127 = true;
 
     // https://bugs.mysql.com/99182 BETWEEN malfunctions for DECIMAL and TEXT
-    public static boolean bug99181 = true;
+    // Testing in MySQL 8.0+ shows this bug may be fixed. Enable for broader coverage.
+    public static boolean bug99181 = false;
 
     // https://bugs.mysql.com/bug.php?id=99183
-    public static boolean bug99183 = true;
+    // Precision/scale bugs for DECIMAL/FLOAT/DOUBLE. Testing shows MySQL 8.0 handles these correctly.
+    public static boolean bug99183 = false;
 
     // https://bugs.mysql.com/bug.php?id=95894
     public static boolean bug95894 = true;
 
     // https://bugs.mysql.com/bug.php?id=99135
-    public static boolean bug99135 = true;
+    // Binary/bitwise operation bugs. Testing in MySQL 8.0+ shows these are largely fixed.
+    public static boolean bug99135 = false;
 
     // https://bugs.mysql.com/bug.php?id=111471
     public static boolean bug111471 = true;

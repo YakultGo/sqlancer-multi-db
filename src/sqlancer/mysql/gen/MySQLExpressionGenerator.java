@@ -25,6 +25,8 @@ import sqlancer.mysql.MySQLSchema.MySQLTable;
 import sqlancer.mysql.ast.MySQLAggregate;
 import sqlancer.mysql.ast.MySQLAggregate.MySQLAggregateFunction;
 import sqlancer.mysql.ast.MySQLBetweenOperation;
+import sqlancer.mysql.ast.MySQLBinaryArithmeticOperation;
+import sqlancer.mysql.ast.MySQLBinaryArithmeticOperation.MySQLBinaryArithmeticOperator;
 import sqlancer.mysql.ast.MySQLBinaryComparisonOperation;
 import sqlancer.mysql.ast.MySQLBinaryComparisonOperation.BinaryComparisonOperator;
 import sqlancer.mysql.ast.MySQLBinaryLogicalOperation;
@@ -50,6 +52,9 @@ import sqlancer.mysql.ast.MySQLTableReference;
 import sqlancer.mysql.ast.MySQLUnaryPostfixOperation;
 import sqlancer.mysql.ast.MySQLUnaryPrefixOperation;
 import sqlancer.mysql.ast.MySQLUnaryPrefixOperation.MySQLUnaryPrefixOperator;
+import sqlancer.mysql.ast.MySQLTemporalFunction;
+import sqlancer.mysql.ast.MySQLTemporalFunction.TemporalFunctionKind;
+import sqlancer.mysql.ast.MySQLTemporalUtil.IntervalUnit;
 
 public class MySQLExpressionGenerator extends UntypedExpressionGenerator<MySQLExpression, MySQLColumn>
         implements NoRECGenerator<MySQLSelect, MySQLJoin, MySQLExpression, MySQLTable, MySQLColumn>,
@@ -70,8 +75,9 @@ public class MySQLExpressionGenerator extends UntypedExpressionGenerator<MySQLEx
     }
 
     private enum Actions {
-        COLUMN, LITERAL, UNARY_PREFIX_OPERATION, UNARY_POSTFIX, COMPUTABLE_FUNCTION, BINARY_LOGICAL_OPERATOR,
-        BINARY_COMPARISON_OPERATION, CAST, IN_OPERATION, BINARY_OPERATION, EXISTS, BETWEEN_OPERATOR, CASE_OPERATOR;
+        COLUMN, LITERAL, UNARY_PREFIX_OPERATION, UNARY_POSTFIX, COMPUTABLE_FUNCTION, TEMPORAL_FUNCTION,
+        BINARY_LOGICAL_OPERATOR, BINARY_COMPARISON_OPERATION, CAST, IN_OPERATION, BINARY_OPERATION, ARITHMETIC_OPERATION,
+        EXISTS, BETWEEN_OPERATOR, CASE_OPERATOR;
     }
 
     @Override
@@ -94,6 +100,11 @@ public class MySQLExpressionGenerator extends UntypedExpressionGenerator<MySQLEx
                     Randomly.getBoolean());
         case COMPUTABLE_FUNCTION:
             return getComputableFunction(depth + 1);
+        case TEMPORAL_FUNCTION:
+            if (!state.getDbmsSpecificOptions().testDates) {
+                throw new IgnoreMeException();
+            }
+            return getTemporalFunction(depth + 1);
         case BINARY_LOGICAL_OPERATOR:
             return new MySQLBinaryLogicalOperation(generateExpression(depth + 1), generateExpression(depth + 1),
                     MySQLBinaryLogicalOperator.getRandom());
@@ -115,6 +126,9 @@ public class MySQLExpressionGenerator extends UntypedExpressionGenerator<MySQLEx
             }
             return new MySQLBinaryOperation(generateExpression(depth + 1), generateExpression(depth + 1),
                     MySQLBinaryOperator.getRandom());
+        case ARITHMETIC_OPERATION:
+            return new MySQLBinaryArithmeticOperation(generateExpression(depth + 1), generateExpression(depth + 1),
+                    MySQLBinaryArithmeticOperator.getRandom());
         case EXISTS:
             return getExists();
         case BETWEEN_OPERATOR:
@@ -152,6 +166,39 @@ public class MySQLExpressionGenerator extends UntypedExpressionGenerator<MySQLEx
             args[i] = generateExpression(depth + 1);
         }
         return new MySQLComputableFunction(func, args);
+    }
+
+    private MySQLExpression getTemporalFunction(int depth) {
+        // Generate temporal functions with INTERVAL syntax (DATE_ADD, DATE_SUB, etc.)
+        TemporalFunctionKind kind = TemporalFunctionKind.getRandom();
+
+        // Generate the temporal expression (date/datetime/timestamp)
+        MySQLExpression temporalExpr = generateExpression(depth + 1);
+
+        // Generate the interval value
+        long intervalValue = state.getRandomly().getInteger(-100, 100); // Keep reasonable range
+
+        // Choose a unit from simple interval units
+        IntervalUnit[] simpleUnits = {
+            IntervalUnit.YEAR, IntervalUnit.MONTH, IntervalUnit.DAY,
+            IntervalUnit.HOUR, IntervalUnit.MINUTE, IntervalUnit.SECOND
+        };
+        IntervalUnit unit = Randomly.fromOptions(simpleUnits);
+        String unitStr = unit.toString();
+
+        // Determine return type based on temporal expression type
+        MySQLDataType returnType = MySQLDataType.DATETIME;
+        MySQLConstant temporalValue = temporalExpr.getExpectedValue();
+        if (temporalValue != null) {
+            returnType = temporalValue.getType();
+            if (returnType == null || returnType == MySQLDataType.INT || returnType == MySQLDataType.VARCHAR) {
+                returnType = MySQLDataType.DATETIME;
+            }
+        }
+
+        MySQLConstant intervalConst = MySQLConstant.createIntConstant(intervalValue);
+
+        return new MySQLTemporalFunction(kind, temporalExpr, intervalConst, unitStr, returnType);
     }
 
     private enum ConstantType {

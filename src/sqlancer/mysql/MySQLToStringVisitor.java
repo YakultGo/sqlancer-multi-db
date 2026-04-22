@@ -8,6 +8,7 @@ import sqlancer.common.visitor.ToStringVisitor;
 import sqlancer.mysql.ast.MySQLAggregate;
 import sqlancer.mysql.ast.MySQLAggregate.MySQLAggregateFunction;
 import sqlancer.mysql.ast.MySQLBetweenOperation;
+import sqlancer.mysql.ast.MySQLBinaryArithmeticOperation;
 import sqlancer.mysql.ast.MySQLBinaryComparisonOperation;
 import sqlancer.mysql.ast.MySQLBinaryLogicalOperation;
 import sqlancer.mysql.ast.MySQLBinaryOperation;
@@ -40,6 +41,7 @@ import sqlancer.mysql.ast.MySQLResultMap;
 import sqlancer.mysql.ast.MySQLOracleAlias;
 import sqlancer.mysql.ast.MySQLTypeof;
 import sqlancer.mysql.ast.MySQLTableAndColumnRef;
+import sqlancer.mysql.ast.MySQLTemporalFunction;
 
 public class MySQLToStringVisitor extends ToStringVisitor<MySQLExpression> implements MySQLVisitor {
 
@@ -254,6 +256,17 @@ public class MySQLToStringVisitor extends ToStringVisitor<MySQLExpression> imple
         sb.append(") ");
         sb.append(op.getOp().getTextRepresentation());
         sb.append(" (");
+        visit(op.getRight());
+        sb.append(")");
+    }
+
+    @Override
+    public void visit(MySQLBinaryArithmeticOperation op) {
+        sb.append("(");
+        visit(op.getLeft());
+        sb.append(" ");
+        sb.append(op.getOp().getTextRepresentation());
+        sb.append(" ");
         visit(op.getRight());
         sb.append(")");
     }
@@ -504,5 +517,17 @@ public class MySQLToStringVisitor extends ToStringVisitor<MySQLExpression> imple
         sb.append(ref.getTable().getName());
         sb.append(".");
         sb.append(ref.getColumn().getName());
+    }
+
+    @Override
+    public void visit(MySQLTemporalFunction func) {
+        sb.append(func.getKind().getFunctionName());
+        sb.append("(");
+        visit(func.getTemporalExpr());
+        sb.append(", INTERVAL ");
+        visit(func.getIntervalExpr());
+        sb.append(" ");
+        sb.append(func.getIntervalUnit());
+        sb.append(")");
     }
 }

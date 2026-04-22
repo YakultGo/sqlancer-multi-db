@@ -52,7 +52,12 @@ public class MySQLAlterTable {
         STATS_PERSISTENT, //
         PACK_KEYS, RENAME("doesn't exist", "already exists"), /* WITH_WITHOUT_VALIDATION , */
         DROP_PRIMARY_KEY(
-                "ALGORITHM=INSTANT is not supported. Reason: Dropping a primary key is not allowed without also adding a new primary key. Try ALGORITHM=COPY/INPLACE.");
+                "ALGORITHM=INSTANT is not supported. Reason: Dropping a primary key is not allowed without also adding a new primary key. Try ALGORITHM=COPY/INPLACE."),
+        MODIFY_COLUMN("Cannot convert", "Data truncated", "ALGORITHM=INSTANT is not supported",
+                "ALGORITHM=INPLACE is not supported", "Incorrect column specifier"),
+        CHANGE_COLUMN("Cannot convert", "Data truncated", "ALGORITHM=INSTANT is not supported",
+                "ALGORITHM=INPLACE is not supported", "Unknown column", "Incorrect column specifier"),
+        ADD_COLUMN("Duplicate column name", "ALGORITHM=INSTANT is not supported", "ALGORITHM=INPLACE is not supported");
 
         private String[] potentialErrors;
 
@@ -147,11 +152,40 @@ public class MySQLAlterTable {
                 sb.append("PACK_KEYS ");
                 sb.append(Randomly.fromOptions("0", "1", "DEFAULT"));
                 break;
-            // not relevant:
-            // case WITH_WITHOUT_VALIDATION:
-            // sb.append(Randomly.fromOptions("WITHOUT", "WITH"));
-            // sb.append(" VALIDATION");
-            // break;
+            case MODIFY_COLUMN:
+                sb.append("MODIFY ");
+                if (Randomly.getBoolean()) {
+                    sb.append("COLUMN ");
+                }
+                sb.append(table.getRandomColumn().getName());
+                sb.append(" ");
+                appendColumnDefinition();
+                couldAffectSchema = true;
+                break;
+            case CHANGE_COLUMN:
+                sb.append("CHANGE ");
+                if (Randomly.getBoolean()) {
+                    sb.append("COLUMN ");
+                }
+                MySQLSchema.MySQLColumn oldCol = table.getRandomColumn();
+                sb.append(oldCol.getName());
+                sb.append(" ");
+                // Generate new column name
+                sb.append("c").append(Randomly.smallNumber());
+                sb.append(" ");
+                appendColumnDefinition();
+                couldAffectSchema = true;
+                break;
+            case ADD_COLUMN:
+                sb.append("ADD ");
+                if (Randomly.getBoolean()) {
+                    sb.append("COLUMN ");
+                }
+                sb.append("c").append(Randomly.smallNumber());
+                sb.append(" ");
+                appendColumnDefinition();
+                couldAffectSchema = true;
+                break;
             case RENAME:
                 sb.append("RENAME ");
                 if (Randomly.getBoolean()) {
@@ -181,6 +215,168 @@ public class MySQLAlterTable {
             }
         }
         return new SQLQueryAdapter(sb.toString(), errors, couldAffectSchema);
+    }
+
+    /**
+     * Append a column definition (type and options) for MODIFY/CHANGE/ADD COLUMN operations.
+     */
+    private void appendColumnDefinition() {
+        Randomly r = globalState.getRandomly();
+        // Generate a random column type
+        MySQLSchema.MySQLDataType type = MySQLSchema.MySQLDataType.getRandom(globalState);
+        appendColumnType(type, r);
+        // Optionally add column options
+        appendAlterColumnOptions(type, r);
+    }
+
+    /**
+     * Append column type definition
+     */
+    private void appendColumnType(MySQLSchema.MySQLDataType type, Randomly r) {
+        switch (type) {
+        case INT:
+            sb.append(Randomly.fromOptions("TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"));
+            if (Randomly.getBoolean()) {
+                sb.append("(");
+                sb.append(Randomly.getNotCachedInteger(0, 255));
+                sb.append(")");
+            }
+            break;
+        case VARCHAR:
+            sb.append(Randomly.fromOptions("VARCHAR(500)", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT"));
+            break;
+        case FLOAT:
+            sb.append("FLOAT");
+            break;
+        case DOUBLE:
+            sb.append(Randomly.fromOptions("DOUBLE", "FLOAT"));
+            break;
+        case DECIMAL:
+            sb.append("DECIMAL");
+            optionallyAddPrecisionAndScale(sb, r);
+            break;
+        case DATE:
+            sb.append("DATE");
+            break;
+        case TIME:
+            sb.append("TIME(");
+            sb.append(r.getInteger(0, 6));
+            sb.append(")");
+            break;
+        case DATETIME:
+            sb.append("DATETIME(");
+            sb.append(r.getInteger(0, 6));
+            sb.append(")");
+            break;
+        case TIMESTAMP:
+            sb.append("TIMESTAMP(");
+            sb.append(r.getInteger(0, 6));
+            sb.append(")");
+            break;
+        case YEAR:
+            sb.append("YEAR");
+            break;
+        case BIT:
+            sb.append("BIT(");
+            sb.append(r.getInteger(1, 64));
+            sb.append(")");
+            break;
+        case ENUM:
+            sb.append("ENUM('e0','e1','e2')");
+            break;
+        case SET:
+            sb.append("SET('s0','s1','s2')");
+            break;
+        case JSON:
+            sb.append("JSON");
+            break;
+        case BINARY:
+            sb.append("BINARY(");
+            sb.append(r.getInteger(1, 255));
+            sb.append(")");
+            break;
+        case VARBINARY:
+            sb.append("VARBINARY(");
+            sb.append(r.getInteger(1, 500));
+            sb.append(")");
+            break;
+        case BLOB:
+            sb.append(Randomly.fromOptions("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB"));
+            break;
+        default:
+            throw new AssertionError(type);
+        }
+        // Add UNSIGNED/ZEROFILL for numeric types
+        if (type.isNumeric() && type != MySQLSchema.MySQLDataType.INT) {
+            if (Randomly.getBoolean()) {
+                sb.append(" UNSIGNED");
+            }
+            if (Randomly.getBoolean()) {
+                sb.append(" ZEROFILL");
+            }
+        }
+    }
+
+    /**
+     * Append column options for ALTER TABLE column operations
+     */
+    private void appendAlterColumnOptions(MySQLSchema.MySQLDataType type, Randomly r) {
+        // Add NULL/NOT NULL
+        if (Randomly.getBoolean()) {
+            sb.append(" ");
+            sb.append(Randomly.fromOptions("NULL", "NOT NULL"));
+        }
+        // Add DEFAULT value (randomly)
+        if (Randomly.getBooleanWithSmallProbability() && type != MySQLSchema.MySQLDataType.BLOB) {
+            sb.append(" DEFAULT ");
+            switch (type) {
+            case INT:
+                sb.append(r.getInteger(-100, 100));
+                break;
+            case FLOAT:
+            case DOUBLE:
+            case DECIMAL:
+                sb.append(r.getDouble());
+                break;
+            case VARCHAR:
+                sb.append("'");
+                sb.append(r.getString().replace("'", "\\'"));
+                sb.append("'");
+                break;
+            case DATE:
+                sb.append("'2024-01-01'");
+                break;
+            case TIME:
+                sb.append("'12:00:00'");
+                break;
+            case DATETIME:
+                sb.append("'2024-01-01 12:00:00'");
+                break;
+            case TIMESTAMP:
+                sb.append(Randomly.fromOptions("CURRENT_TIMESTAMP", "'2024-01-01 12:00:00'"));
+                break;
+            default:
+                sb.append("NULL");
+                break;
+            }
+        }
+        // Add COMMENT (randomly)
+        if (Randomly.getBooleanWithSmallProbability()) {
+            sb.append(" COMMENT 'comment'");
+        }
+    }
+
+    /**
+     * Optionally add precision and scale for DECIMAL/FLOAT/DOUBLE
+     */
+    private static void optionallyAddPrecisionAndScale(StringBuilder sb, Randomly r) {
+        if (Randomly.getBoolean()) {
+            sb.append("(");
+            sb.append(r.getInteger(1, 65));
+            sb.append(", ");
+            sb.append(r.getInteger(0, 30));
+            sb.append(")");
+        }
     }
 
 }

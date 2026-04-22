@@ -1259,6 +1259,20 @@ public abstract class MySQLConstant implements MySQLExpression {
 
     public abstract MySQLConstant isEquals(MySQLConstant rightVal);
 
+    /**
+     * NULL-safe equality comparison (<=> operator).
+     * Unlike regular equality, NULL <=> NULL returns TRUE, and NULL <=> non-NULL returns FALSE.
+     */
+    public MySQLConstant isEqualsNullSafe(MySQLConstant rightVal) {
+        if (this.isNull()) {
+            return MySQLConstant.createBoolean(rightVal.isNull());
+        }
+        if (rightVal.isNull()) {
+            return MySQLConstant.createFalse();
+        }
+        return this.isEquals(rightVal);
+    }
+
     public abstract MySQLConstant castAs(CastType type);
 
     public abstract String castAsString();
@@ -1289,6 +1303,90 @@ public abstract class MySQLConstant implements MySQLExpression {
 
     public static MySQLConstant createBinaryConstant(byte[] value, int length) {
         return new MySQLBinaryConstant(value, length);
+    }
+
+    public static MySQLConstant createIntervalConstant(long value, String unit) {
+        return new MySQLIntervalConstant(value, unit);
+    }
+
+    /**
+     * Represents a MySQL INTERVAL value.
+     * Used in DATE_ADD, DATE_SUB, and other temporal functions.
+     */
+    public static class MySQLIntervalConstant extends MySQLConstant {
+
+        private final long value;
+        private final String unit;
+
+        public MySQLIntervalConstant(long value, String unit) {
+            this.value = value;
+            this.unit = unit;
+        }
+
+        @Override
+        public String getTextRepresentation() {
+            return "INTERVAL " + value + " " + unit;
+        }
+
+        @Override
+        public String castAsString() {
+            return getTextRepresentation();
+        }
+
+        @Override
+        public MySQLDataType getType() {
+            return MySQLDataType.INT; // INTERVAL is internally treated as numeric
+        }
+
+        @Override
+        public boolean asBooleanNotNull() {
+            return value != 0;
+        }
+
+        @Override
+        public MySQLConstant isEquals(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLIntervalConstant) {
+                MySQLIntervalConstant other = (MySQLIntervalConstant) rightVal;
+                return MySQLConstant.createBoolean(value == other.value && unit.equals(other.unit));
+            }
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        public MySQLConstant castAs(MySQLCastOperation.CastType type) {
+            if (type == MySQLCastOperation.CastType.SIGNED) {
+                return MySQLConstant.createIntConstant(value, true);
+            } else if (type == MySQLCastOperation.CastType.UNSIGNED) {
+                return MySQLConstant.createIntConstant(value, false);
+            }
+            throw new IgnoreMeException();
+        }
+
+        @Override
+        protected MySQLConstant isLessThan(MySQLConstant rightVal) {
+            if (rightVal.isNull()) {
+                return MySQLConstant.createNullConstant();
+            }
+            if (rightVal instanceof MySQLIntervalConstant) {
+                MySQLIntervalConstant other = (MySQLIntervalConstant) rightVal;
+                if (!unit.equals(other.unit)) {
+                    throw new IgnoreMeException(); // Cannot compare different interval units
+                }
+                return MySQLConstant.createBoolean(value < other.value);
+            }
+            throw new IgnoreMeException();
+        }
+
+        public long getIntervalValue() {
+            return value;
+        }
+
+        public String getIntervalUnit() {
+            return unit;
+        }
     }
 
     public abstract MySQLDataType getType();

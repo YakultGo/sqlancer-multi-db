@@ -2,6 +2,7 @@ package sqlancer.mysql;
 
 import sqlancer.mysql.ast.MySQLAggregate;
 import sqlancer.mysql.ast.MySQLBetweenOperation;
+import sqlancer.mysql.ast.MySQLBinaryArithmeticOperation;
 import sqlancer.mysql.ast.MySQLBinaryComparisonOperation;
 import sqlancer.mysql.ast.MySQLBinaryLogicalOperation;
 import sqlancer.mysql.ast.MySQLBinaryOperation;
@@ -32,6 +33,7 @@ import sqlancer.mysql.ast.MySQLResultMap;
 import sqlancer.mysql.ast.MySQLOracleAlias;
 import sqlancer.mysql.ast.MySQLTypeof;
 import sqlancer.mysql.ast.MySQLTableAndColumnRef;
+import sqlancer.mysql.ast.MySQLTemporalFunction;
 
 public interface MySQLVisitor {
 
@@ -67,6 +69,8 @@ public interface MySQLVisitor {
 
     void visit(MySQLBinaryOperation op);
 
+    void visit(MySQLBinaryArithmeticOperation op);
+
     void visit(MySQLOrderByTerm op);
 
     void visit(MySQLExists op);
@@ -97,6 +101,8 @@ public interface MySQLVisitor {
 
     void visit(MySQLTableAndColumnRef ref);
 
+    void visit(MySQLTemporalFunction func);
+
     default void visit(MySQLExpression expr) {
         if (expr instanceof MySQLConstant) {
             visit((MySQLConstant) expr);
@@ -118,6 +124,8 @@ public interface MySQLVisitor {
             visit((MySQLInOperation) expr);
         } else if (expr instanceof MySQLBinaryOperation) {
             visit((MySQLBinaryOperation) expr);
+        } else if (expr instanceof MySQLBinaryArithmeticOperation) {
+            visit((MySQLBinaryArithmeticOperation) expr);
         } else if (expr instanceof MySQLOrderByTerm) {
             visit((MySQLOrderByTerm) expr);
         } else if (expr instanceof MySQLExists) {
@@ -160,6 +168,10 @@ public interface MySQLVisitor {
             visit((MySQLTypeof) expr);
         } else if (expr instanceof MySQLTableAndColumnRef) {
             visit((MySQLTableAndColumnRef) expr);
+        } else if (expr instanceof MySQLTemporalFunction) {
+            visit((MySQLTemporalFunction) expr);
+        } else if (expr instanceof MySQLConstant.MySQLIntervalConstant) {
+            visit((MySQLConstant) expr);
         } else {
             throw new AssertionError(expr);
         }

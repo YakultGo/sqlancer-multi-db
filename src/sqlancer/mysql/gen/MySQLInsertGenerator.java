@@ -12,6 +12,7 @@ import sqlancer.common.query.ExpectedErrors;
 import sqlancer.common.query.SQLQueryAdapter;
 import sqlancer.mysql.MySQLErrors;
 import sqlancer.mysql.MySQLGlobalState;
+import sqlancer.mysql.MySQLSchema;
 import sqlancer.mysql.MySQLSchema.MySQLDataType;
 import sqlancer.mysql.MySQLSchema.MySQLColumn;
 import sqlancer.mysql.MySQLSchema.MySQLTable;
@@ -24,10 +25,13 @@ public class MySQLInsertGenerator {
     private final StringBuilder sb = new StringBuilder();
     private final ExpectedErrors errors = new ExpectedErrors();
     private final MySQLGlobalState globalState;
+    private final MySQLSchema schema;
+    private boolean useInsert;
 
     public MySQLInsertGenerator(MySQLGlobalState globalState, MySQLTable table) {
         this.globalState = globalState;
         this.table = table;
+        this.schema = globalState.getSchema();
     }
 
     public static SQLQueryAdapter insertRow(MySQLGlobalState globalState) throws SQLException {
@@ -49,6 +53,7 @@ public class MySQLInsertGenerator {
     }
 
     private SQLQueryAdapter generateReplace() {
+        useInsert = false;
         sb.append("REPLACE");
         if (Randomly.getBoolean()) {
             sb.append(" ");
@@ -59,6 +64,7 @@ public class MySQLInsertGenerator {
     }
 
     private SQLQueryAdapter generateInsert() {
+        useInsert = true;
         sb.append("INSERT");
         if (Randomly.getBoolean()) {
             sb.append(" ");
@@ -77,40 +83,111 @@ public class MySQLInsertGenerator {
         sb.append("(");
         sb.append(columns.stream().map(c -> c.getName()).collect(Collectors.joining(", ")));
         sb.append(") ");
-        sb.append("VALUES");
-        MySQLExpressionGenerator gen = new MySQLExpressionGenerator(globalState);
-        boolean testDates = globalState.getDbmsSpecificOptions().testDates;
-        int nrRows;
-        if (Randomly.getBoolean()) {
-            nrRows = 1;
+
+        // Randomly choose between VALUES and SELECT syntax
+        boolean useSelect = Randomly.getBooleanWithRatherLowProbability() && schema.getDatabaseTables().size() > 1;
+
+        if (useSelect) {
+            // INSERT ... SELECT syntax
+            generateInsertSelect(columns);
         } else {
-            nrRows = 1 + Randomly.smallNumber();
-        }
-        for (int row = 0; row < nrRows; row++) {
-            if (row != 0) {
-                sb.append(", ");
+            // VALUES syntax
+            sb.append("VALUES");
+            MySQLExpressionGenerator gen = new MySQLExpressionGenerator(globalState);
+            boolean testDates = globalState.getDbmsSpecificOptions().testDates;
+            int nrRows;
+            if (Randomly.getBoolean()) {
+                nrRows = 1;
+            } else {
+                nrRows = 1 + Randomly.smallNumber();
             }
-            sb.append("(");
-            for (int c = 0; c < columns.size(); c++) {
-                if (c != 0) {
+            for (int row = 0; row < nrRows; row++) {
+                if (row != 0) {
                     sb.append(", ");
                 }
-                MySQLColumn column = columns.get(c);
-                MySQLDataType colType = column.getType();
-                if (testDates && isTemporalType(colType)) {
-                    sb.append(MySQLVisitor.asString(generateTemporalConstant(column)));
-                } else if (isBitEnumSetType(colType)) {
-                    // 为 BIT/ENUM/SET 类型生成适当的常量
-                    sb.append(MySQLVisitor.asString(generateBitEnumSetConstant(column, globalState.getRandomly())));
-                } else {
-                    sb.append(MySQLVisitor.asString(gen.generateConstant()));
-                }
+                sb.append("(");
+                for (int c = 0; c < columns.size(); c++) {
+                    if (c != 0) {
+                        sb.append(", ");
+                    }
+                    MySQLColumn column = columns.get(c);
+                    MySQLDataType colType = column.getType();
+                    if (testDates && isTemporalType(colType)) {
+                        sb.append(MySQLVisitor.asString(generateTemporalConstant(column)));
+                    } else if (isBitEnumSetType(colType)) {
+                        // 为 BIT/ENUM/SET 类型生成适当的常量
+                        sb.append(MySQLVisitor.asString(generateBitEnumSetConstant(column, globalState.getRandomly())));
+                    } else {
+                        sb.append(MySQLVisitor.asString(gen.generateConstant()));
+                    }
 
+                }
+                sb.append(")");
             }
-            sb.append(")");
         }
+
+        // Add ON DUPLICATE KEY UPDATE (only for INSERT, not REPLACE)
+        if (useInsert && Randomly.getBooleanWithRatherLowProbability()) {
+            sb.append(" ON DUPLICATE KEY UPDATE ");
+            // Generate update assignments
+            List<MySQLColumn> updateColumns = table.getRandomNonEmptyColumnSubset();
+            MySQLExpressionGenerator gen = new MySQLExpressionGenerator(globalState).setColumns(table.getColumns());
+            for (int i = 0; i < updateColumns.size(); i++) {
+                if (i != 0) {
+                    sb.append(", ");
+                }
+                sb.append(updateColumns.get(i).getName());
+                sb.append("=");
+                // Use VALUES() function or a new expression
+                if (Randomly.getBoolean()) {
+                    sb.append("VALUES(");
+                    sb.append(updateColumns.get(i).getName());
+                    sb.append(")");
+                } else {
+                    sb.append(MySQLVisitor.asString(gen.generateExpression()));
+                }
+            }
+        }
+
         MySQLErrors.addInsertUpdateErrors(errors);
         return new SQLQueryAdapter(sb.toString(), errors);
+    }
+
+    /**
+     * Generate INSERT ... SELECT statement
+     */
+    private void generateInsertSelect(List<MySQLColumn> columns) {
+        sb.append("SELECT ");
+        // Generate expressions matching the number of columns
+        MySQLExpressionGenerator gen = new MySQLExpressionGenerator(globalState);
+        for (int i = 0; i < columns.size(); i++) {
+            if (i != 0) {
+                sb.append(", ");
+            }
+            sb.append(MySQLVisitor.asString(gen.generateExpression()));
+        }
+        sb.append(" FROM ");
+        // Use a different table for SELECT
+        MySQLTable sourceTable = schema.getRandomTableNonView();
+        if (sourceTable == null || sourceTable.getName().equals(table.getName())) {
+            // If same table or no other table, use the same table but that's okay
+            sb.append(table.getName());
+        } else {
+            sb.append(sourceTable.getName());
+        }
+        // Optionally add WHERE clause
+        if (Randomly.getBoolean()) {
+            sb.append(" WHERE ");
+            sb.append(MySQLVisitor.asString(gen.generateExpression()));
+        }
+        // Optionally add LIMIT
+        if (Randomly.getBoolean()) {
+            sb.append(" LIMIT ");
+            sb.append(globalState.getRandomly().getInteger(1, 100));
+        }
+        // Add expected errors for INSERT SELECT
+        errors.add("Column count doesn't match value count");
+        errors.add("Unknown column");
     }
 
     private static boolean isTemporalType(MySQLDataType type) {
