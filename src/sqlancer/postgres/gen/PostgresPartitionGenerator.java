@@ -69,13 +69,14 @@ public final class PostgresPartitionGenerator {
         errors.add("is not a partition of relation");
         errors.add("relation does not exist");
         errors.add("cannot detach partitions concurrently");
+        errors.add("cannot run inside a transaction block");
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
         sb.append(child.getPartitionParent());
         sb.append(" DETACH PARTITION ");
         sb.append(child.getName());
         if (Randomly.getBooleanWithRatherLowProbability()) {
-            sb.append(" FINALIZE");
+            sb.append(Randomly.fromOptions(" CONCURRENTLY", " FINALIZE"));
         }
         return new SQLQueryAdapter(sb.toString(), errors, true);
     }
