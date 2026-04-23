@@ -73,6 +73,8 @@
 - 修复 MySQL TRUNCATE TABLE 对视图执行问题：`MySQLTruncateTableGenerator` 使用 `getRandomTableNoViewOrBailout()` 替代 `getRandomTable()`，确保只在 BASE TABLE 上执行 TRUNCATE
 - 修复 MySQL ANALYZE TABLE 空列问题：`MySQLAnalyzeTable.updateHistogram()` 和 `dropHistogram()` 添加空列检查，避免对无列的表执行 HISTOGRAM 操作导致 AssertionError
 - 验证结果：MySQL 执行 67K+ 查询（成功率 94%），TLP Aggregate oracle 发现 MySQL 逻辑 bug（符合预期行为），工具稳定运行无内部错误
+- 新增 PostgreSQL 表数量参数：`--pg-tables=N` 控制测试数据库中创建的表数量（默认 3 张），此前为硬编码随机 4-6 张
+- 补齐 PostgreSQL 分区表基础 DDL 覆盖：schema 识别父/子分区关系与简单分区 key；新增合法 `CREATE TABLE ... PARTITION OF ... FOR VALUES ...`（覆盖 RANGE/LIST/HASH，RANGE/LIST 支持 DEFAULT 分区）与 `ALTER TABLE ... DETACH PARTITION` 生成；建表阶段主动为父分区表补 child partition；`TRUNCATE` 低概率覆盖 `ONLY` 父分区表；bombard 模式排除分区 DDL 以避免压测锁干扰
 
 ## v0.1.74 | 2026-04-21
 - 集成验证完成：GaussDB-M（M兼容模式）全量通过集成测试，14个 oracle 全部可用
@@ -83,6 +85,7 @@
 - 修复 GaussDBToStringVisitor 子查询输出：为 SELECT 类型表达式添加括号包裹，解决 CODDTEST 等 oracle 生成的标量子查询语法错误
 - 全量类型支持验证：INT/VARCHAR/FLOAT/DOUBLE/DECIMAL/DATE/TIME/DATETIME/TIMESTAMP/YEAR 10种数据类型在 INSERT/CREATE TABLE/表达式生成中均正常工作
 - 验证结果：GaussDB-M 执行 192 查询（27 queries/s，成功率 100%），14 个 oracle（NOREC/TLP_WHERE/HAVING/GROUP_BY/AGGREGATE/DISTINCT/PQS/CERT/FUZZER/DQP/DQE/EET/CODDTEST/QUERY_PARTITIONING）全部稳定运行
+- 新增 PostgreSQL bombard 并发压测模式：`postgres --bombard=true --bombard-workers=N` 支持单 database 多 worker 并发执行随机 SQL；该模式独立于 oracle，复用 PostgreSQL 现有 mutator 权重并混合随机 SELECT，同时排除 `DISCARD`、`TRUNCATE`、`VACUUM`、`CLUSTER`、`REINDEX`、`CREATE_TABLESPACE` 等不适合长跑并发压测的高风险动作
 
 ## v0.1.73 | 2026-04-21
 - 集成验证修复：MySQL、PostgreSQL、GaussDB-PG、GaussDB-A 全面通过集成测试

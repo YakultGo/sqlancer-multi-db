@@ -183,7 +183,6 @@ public class PostgresTableGenerator {
         }
         isPartitionedTable = true;
         sb.append(" PARTITION BY ");
-        // TODO "RANGE",
         String partitionOption = Randomly.fromOptions("RANGE", "LIST", "HASH");
         sb.append(partitionOption);
         sb.append("(");
@@ -195,8 +194,14 @@ public class PostgresTableGenerator {
         errors.add("which is part of the partition key.");
         errors.add("unsupported UNIQUE constraint with partition key definition");
         errors.add("does not accept data type");
-        int n = partitionOption.contentEquals("LIST") ? 1 : Randomly.smallNumber() + 1;
         PostgresCommon.addCommonExpressionErrors(errors);
+        List<PostgresColumn> simplePartitionColumns = getSimplePartitionColumns(partitionOption);
+        if (!simplePartitionColumns.isEmpty() && !Randomly.getBooleanWithRatherLowProbability()) {
+            sb.append(Randomly.fromList(simplePartitionColumns).getName());
+            sb.append(")");
+            return;
+        }
+        int n = partitionOption.contentEquals("LIST") ? 1 : Randomly.smallNumber() + 1;
         for (int i = 0; i < n; i++) {
             if (i != 0) {
                 sb.append(", ");
@@ -211,6 +216,36 @@ public class PostgresTableGenerator {
             }
         }
         sb.append(")");
+    }
+
+    private List<PostgresColumn> getSimplePartitionColumns(String partitionOption) {
+        List<PostgresColumn> supportedColumns = new ArrayList<>();
+        for (PostgresColumn column : columnsToBeAdded) {
+            if (column.getCompoundType().isArray()) {
+                continue;
+            }
+            PostgresDataType dataType = column.getCompoundType().getDataType();
+            switch (partitionOption) {
+            case "RANGE":
+                if (dataType == PostgresDataType.INT || dataType == PostgresDataType.DATE
+                        || dataType == PostgresDataType.TIMESTAMP || dataType == PostgresDataType.TIMESTAMPTZ) {
+                    supportedColumns.add(column);
+                }
+                break;
+            case "LIST":
+                if (dataType == PostgresDataType.INT || dataType == PostgresDataType.TEXT
+                        || dataType == PostgresDataType.ENUM || dataType == PostgresDataType.BOOLEAN) {
+                    supportedColumns.add(column);
+                }
+                break;
+            case "HASH":
+                supportedColumns.add(column);
+                break;
+            default:
+                throw new AssertionError(partitionOption);
+            }
+        }
+        return supportedColumns;
     }
 
     private void generateUsing() {

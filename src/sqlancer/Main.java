@@ -48,6 +48,7 @@ import sqlancer.materialize.MaterializeProvider;
 import sqlancer.mysql.MySQLProvider;
 import sqlancer.mysql.MySQLOptions;
 import sqlancer.oceanbase.OceanBaseProvider;
+import sqlancer.postgres.PostgresBombard;
 import sqlancer.postgres.PostgresProvider;
 import sqlancer.postgres.PostgresOptions;
 import sqlancer.presto.PrestoProvider;
@@ -362,7 +363,7 @@ public final class Main {
 
         private final GlobalState<?, ?, C> globalState;
 
-        QueryManager(GlobalState<?, ?, C> globalState) {
+        public QueryManager(GlobalState<?, ?, C> globalState) {
             this.globalState = globalState;
         }
 
@@ -471,11 +472,13 @@ public final class Main {
                 } else {
                     reproducer = provider.generateAndTestDatabase(state);
                 }
-                try {
-                    logger.getCurrentFileWriter().close();
-                    logger.currentFileWriter = null;
-                } catch (IOException e) {
-                    throw new AssertionError(e);
+                if (options.logEachSelect() && logger.currentFileWriter != null) {
+                    try {
+                        logger.currentFileWriter.close();
+                        logger.currentFileWriter = null;
+                    } catch (IOException e) {
+                        throw new AssertionError(e);
+                    }
                 }
 
                 if (options.serializeReproduceState() && reproducer != null) {
@@ -582,7 +585,7 @@ public final class Main {
             }
         }
 
-        private synchronized String getRunDirectoryName() {
+        public synchronized String getRunDirectoryName() {
             if (options.getLogDir() != null) {
                 return null;
             }
@@ -676,6 +679,8 @@ public final class Main {
 
         ExecutorService execService = Executors.newFixedThreadPool(options.getNumberConcurrentThreads());
         DBMSExecutorFactory<?, ?, ?> executorFactory = nameToProvider.get(jc.getParsedCommand());
+        boolean postgresBombardMode = executorFactory.getCommand() instanceof PostgresOptions
+                && ((PostgresOptions) executorFactory.getCommand()).isBombard();
 
         if (options.performConnectionTest()) {
             try {
@@ -709,6 +714,12 @@ public final class Main {
                 private void runThread(final String databaseName) {
                     Randomly r = new Randomly(seed);
                     try {
+                        if (postgresBombardMode) {
+                            if (!runPostgresBombard(options, executorFactory, databaseName, seed)) {
+                                someOneFails.set(true);
+                            }
+                            return;
+                        }
                         int maxNrDbs = options.getMaxGeneratedDatabases();
                         // run without a limit if maxNrDbs == -1
                         for (int i = 0; i < maxNrDbs || maxNrDbs == -1; i++) {
@@ -723,6 +734,20 @@ public final class Main {
                         if (threadsShutdown.get() == options.getTotalNumberTries()) {
                             execService.shutdown();
                         }
+                    }
+                }
+
+                private boolean runPostgresBombard(MainOptions options, DBMSExecutorFactory<?, ?, ?> executorFactory,
+                        final String databaseName, long seed) {
+                    try {
+                        PostgresProvider provider = (PostgresProvider) executorFactory.getProvider();
+                        PostgresOptions postgresOptions = (PostgresOptions) executorFactory.getCommand();
+                        new PostgresBombard(provider, options, postgresOptions, databaseName, seed,
+                                executorFactory.getRunDirectoryName()).run();
+                        return true;
+                    } catch (Throwable t) {
+                        t.printStackTrace();
+                        return false;
                     }
                 }
 

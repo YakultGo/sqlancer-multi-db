@@ -6,6 +6,7 @@ import sqlancer.Randomly;
 import sqlancer.common.query.ExpectedErrors;
 import sqlancer.common.query.SQLQueryAdapter;
 import sqlancer.postgres.PostgresGlobalState;
+import sqlancer.postgres.PostgresSchema.PostgresTable;
 
 public final class PostgresTruncateGenerator {
 
@@ -18,13 +19,19 @@ public final class PostgresTruncateGenerator {
         if (Randomly.getBoolean()) {
             sb.append(" TABLE");
         }
-        // TODO partitions
-        // if (Randomly.getBoolean()) {
-        // sb.append(" ONLY");
-        // }
+        boolean truncateOnly = Randomly.getBooleanWithRatherLowProbability()
+                && globalState.getSchema().getDatabaseTables().stream().anyMatch(t -> t.isPartitioned());
+        if (truncateOnly) {
+            sb.append(" ONLY");
+        }
         sb.append(" ");
-        sb.append(globalState.getSchema().getDatabaseTablesRandomSubsetNotEmpty().stream().map(t -> t.getName())
-                .collect(Collectors.joining(", ")));
+        if (truncateOnly) {
+            PostgresTable table = globalState.getSchema().getRandomTable(t -> t.isPartitioned());
+            sb.append(table.getName());
+        } else {
+            sb.append(globalState.getSchema().getDatabaseTablesRandomSubsetNotEmpty().stream().map(t -> t.getName())
+                    .collect(Collectors.joining(", ")));
+        }
         if (Randomly.getBoolean()) {
             sb.append(" ");
             sb.append(Randomly.fromOptions("RESTART IDENTITY", "CONTINUE IDENTITY"));
@@ -35,7 +42,7 @@ public final class PostgresTruncateGenerator {
         }
         return new SQLQueryAdapter(sb.toString(),
                 ExpectedErrors.from("cannot truncate a table referenced in a foreign key constraint", "is not a table",
-                        "is not distributed"));
+                        "is not distributed", "cannot truncate only a partitioned table"));
     }
 
 }
