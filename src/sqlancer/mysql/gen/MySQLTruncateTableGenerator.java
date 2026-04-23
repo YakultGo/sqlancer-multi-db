@@ -11,7 +11,7 @@ public final class MySQLTruncateTableGenerator {
 
     public static SQLQueryAdapter generate(MySQLGlobalState globalState) {
         StringBuilder sb = new StringBuilder("TRUNCATE TABLE ");
-        sb.append(globalState.getSchema().getRandomTable().getName());
+        sb.append(globalState.getSchema().getRandomTableNoViewOrBailout().getName());
         return new SQLQueryAdapter(sb.toString(), ExpectedErrors.from("doesn't have this option"));
     }
 

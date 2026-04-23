@@ -5,6 +5,7 @@ import java.util.List;
 import sqlancer.IgnoreMeException;
 import sqlancer.mysql.ast.MySQLAggregate;
 import sqlancer.mysql.ast.MySQLBetweenOperation;
+import sqlancer.mysql.ast.MySQLBinaryArithmeticOperation;
 import sqlancer.mysql.ast.MySQLBinaryComparisonOperation;
 import sqlancer.mysql.ast.MySQLBinaryLogicalOperation;
 import sqlancer.mysql.ast.MySQLBinaryOperation;
@@ -35,6 +36,7 @@ import sqlancer.mysql.ast.MySQLResultMap;
 import sqlancer.mysql.ast.MySQLOracleAlias;
 import sqlancer.mysql.ast.MySQLTypeof;
 import sqlancer.mysql.ast.MySQLTableAndColumnRef;
+import sqlancer.mysql.ast.MySQLTemporalFunction;
 
 public class MySQLExpectedValueVisitor implements MySQLVisitor {
 
@@ -132,6 +134,13 @@ public class MySQLExpectedValueVisitor implements MySQLVisitor {
 
     @Override
     public void visit(MySQLBinaryOperation op) {
+        print(op);
+        visit(op.getLeft());
+        visit(op.getRight());
+    }
+
+    @Override
+    public void visit(MySQLBinaryArithmeticOperation op) {
         print(op);
         visit(op.getLeft());
         visit(op.getRight());
@@ -267,5 +276,12 @@ public class MySQLExpectedValueVisitor implements MySQLVisitor {
     @Override
     public void visit(MySQLTableAndColumnRef ref) {
         print(ref);
+    }
+
+    @Override
+    public void visit(MySQLTemporalFunction func) {
+        print(func);
+        visit(func.getTemporalExpr());
+        visit(func.getIntervalExpr());
     }
 }

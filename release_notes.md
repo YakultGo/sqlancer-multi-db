@@ -1,10 +1,90 @@
 # Release Notes
 
+## v0.1.80 | 2026-04-22
+- 启用 MySQL bug workarounds，扩展测试覆盖范围：
+  - **启用 Bug #99135**：二进制位操作（&, |, ^）现在可在表达式生成中使用
+  - **启用 Bug #99181**：BETWEEN 操作符现在可正常生成测试
+  - **启用 Bug #99183**：DECIMAL/FLOAT/DOUBLE 精度标度现在可正常生成
+- **新增 <=> NULL-safe 比较操作符**：
+  - 实现 `IS_EQUALS_NULL_SAFE` 操作符（`<=>`）
+  - 添加 `MySQLConstant.isEqualsNullSafe()` 方法
+  - 特性：NULL <=> NULL = TRUE，NULL <=> non-NULL = FALSE
+- **新增测试文件**：
+  - `MySQLNullSafeComparisonTest.java`：NULL-safe 比较测试（14 个用例）
+  - `MySQLBetweenOperationTest.java`：BETWEEN 操作测试（14 个用例）
+  - `MySQLBinaryOperationTest.java`：位操作测试（22 个用例）
+  - `MySQLBugsConfigurationTest.java`：Bug 配置状态测试
+  - `MySQLPrecisionScaleTest.java`：精度标度生成测试
+  - `MySQLNewFeaturesIntegrationTest.java`：新功能集成测试（22 个用例）
+- 修改文件：MySQLBugs.java、MySQLConstant.java、MySQLBinaryComparisonOperation.java
+- 测试结果：85 个新测试全部通过
+
+## v0.1.79 | 2026-04-22
+- 补齐 MySQL 语法覆盖报告中标记的未实现功能：
+- **DDL 增强**：
+  - 列选项：新增 AUTO_INCREMENT 支持（仅 INT 类型，自动创建索引）
+  - 列选项：新增 DEFAULT 值支持（根据列类型生成合适默认值）
+  - ALTER TABLE：新增 MODIFY COLUMN 操作（修改列定义）
+  - ALTER TABLE：新增 CHANGE COLUMN 操作（修改列名和定义）
+  - ALTER TABLE：新增 ADD COLUMN 操作（添加新列）
+- **DML 增强**：
+  - INSERT：新增 ON DUPLICATE KEY UPDATE 语法（随机生成更新赋值）
+  - INSERT：新增 INSERT ... SELECT 语法（从其他表选择数据插入）
+- **算术运算符**：
+  - 新增 MySQLBinaryArithmeticOperation 类支持乘法 (*) 和除法 (/) 运算符
+  - 完整实现 PQS 期望值计算（含除零处理）
+- 修改文件：MySQLTableGenerator.java、MySQLAlterTable.java、MySQLInsertGenerator.java
+- 新建文件：MySQLBinaryArithmeticOperation.java
+- 更新 Visitor：MySQLVisitor.java、MySQLToStringVisitor.java、MySQLExpectedValueVisitor.java
+- 覆盖率提升：DDL 88%→95%、DML 83%→95%、表达式 82%→90%
+
+## v0.1.78 | 2026-04-22
+- 更新 MySQL 语法覆盖率报告：合并新旧报告内容，基于 MySQL 8.0 语法范围与 SQLancer 实际代码实现生成准确覆盖报告
+- 报告位置：`docs/mysql_syntax_coverage_report.md`
+- 主要内容：
+  - 17 种数据类型全覆盖（含 BIT、ENUM、SET、JSON、BINARY、时间类型）
+  - 54+ 内置函数（含字符串 20、JSON 8、时间 20、数学 6、控制流 5）
+  - 13 种 Test Oracle（含 EET、CODDTEST、CERT 等高级策略）
+  - DDL/DML/DQL 核心语法 88-90% 覆盖率
+  - PQS 期望值计算 92%+ 支持
+  - 已知 MySQL bugs 影响范围与未实现功能清单
+
+## v0.1.77 | 2026-04-22
+- 扩展 MySQL 函数支持：新增 30+ 个 MySQL 函数的完整实现与期望值计算
+- 字符串函数（14 个）：SUBSTRING、REPLACE、LOCATE、INSTR、LPAD、RPAD、REVERSE、REPEAT、SPACE、ASCII、CHAR_LENGTH、CONCAT_WS、LTRIM、RTRIM
+- JSON 函数（6 个）：JSON_EXTRACT、JSON_ARRAY、JSON_OBJECT、JSON_REMOVE、JSON_CONTAINS、JSON_KEYS
+- 时间日期函数（15 个）：YEAR、MONTH、DAY、DAYOFWEEK、DAYOFMONTH、DAYOFYEAR、WEEK、QUARTER、HOUR、MINUTE、SECOND、DATEDIFF、LAST_DAY、TO_DAYS、FROM_DAYS
+- INTERVAL 语法函数（4 个）：DATE_ADD、DATE_SUB、ADDDATE、SUBDATE（通过 MySQLTemporalFunction 类实现）
+- 新增基础设施：
+  - `MySQLTemporalUtil`：时间日期处理工具类，支持解析、计算、格式化与日期部分提取
+  - `MySQLTemporalFunction`：支持 INTERVAL 语法的时间日期函数专用类
+  - `MySQLIntervalConstant`：INTERVAL 常量类型
+- 更新文件：MySQLComputableFunction.java、MySQLConstant.java、MySQLExpressionGenerator.java、MySQLToStringVisitor.java、MySQLVisitor.java、MySQLExpectedValueVisitor.java
+- 新增测试：MySQLTemporalFunctionTest.java、MySQLNewFunctionIntegrationTest.java，共 98 个新增测试用例
+- 验证结果：159 个测试通过（含 65 个函数测试 + 33 个时间函数测试 + 16 个集成测试），SQL 生成验证成功
+
+## v0.1.76 | 2026-04-22
+- 优化 MySQL 数据类型覆盖：移除 PQS 模式下的类型限制，所有数据类型默认在所有 test oracle 中可用
+- 覆盖类型：BIT、时间类型（DATE/TIME/DATETIME/TIMESTAMP/YEAR）、二进制类型（BINARY/VARBINARY/BLOB）、JSON、SET、ENUM
+- 修改文件：MySQLSchema.getRandom()、MySQLExpressionGenerator.generateConstant()、MySQLTableGenerator.appendType()
+- 验证结果：BIT(56)、DATETIME(4)、TIME(5)、JSON_TYPE 等类型和函数在 QUERY_PARTITIONING oracle 中正常工作
+
 ## v0.1.75 | 2026-04-21
+- 修复 MySQL TRUNCATE TABLE 对视图执行问题：`MySQLTruncateTableGenerator` 使用 `getRandomTableNoViewOrBailout()` 替代 `getRandomTable()`，确保只在 BASE TABLE 上执行 TRUNCATE
+- 修复 MySQL ANALYZE TABLE 空列问题：`MySQLAnalyzeTable.updateHistogram()` 和 `dropHistogram()` 添加空列检查，避免对无列的表执行 HISTOGRAM 操作导致 AssertionError
+- 验证结果：MySQL 执行 67K+ 查询（成功率 94%），TLP Aggregate oracle 发现 MySQL 逻辑 bug（符合预期行为），工具稳定运行无内部错误
 - 新增 PostgreSQL 表数量参数：`--pg-tables=N` 控制测试数据库中创建的表数量（默认 3 张），此前为硬编码随机 4-6 张
 - 补齐 PostgreSQL 分区表基础 DDL 覆盖：schema 识别父/子分区关系与简单分区 key；新增合法 `CREATE TABLE ... PARTITION OF ... FOR VALUES ...`（覆盖 RANGE/LIST/HASH，RANGE/LIST 支持 DEFAULT 分区）与 `ALTER TABLE ... DETACH PARTITION` 生成；建表阶段主动为父分区表补 child partition；`TRUNCATE` 低概率覆盖 `ONLY` 父分区表；bombard 模式排除分区 DDL 以避免压测锁干扰
 
 ## v0.1.74 | 2026-04-21
+- 集成验证完成：GaussDB-M（M兼容模式）全量通过集成测试，14个 oracle 全部可用
+- 实现MySQL风格自动数据库创建：GaussDBMProvider 自动创建 M-compatible 测试数据库（`CREATE DATABASE ... DBCOMPATIBILITY 'M'`），对齐 MySQL/GaussDB-A 方式，无需额外参数
+- 修复 schema 发现适配 M兼容模式：GaussDBMSchema 使用 MySQL 风格 `SHOW TABLES`/`SHOW COLUMNS FROM` 作为首选方案，并保留 information_schema/pg_tables 作为 fallback
+- 修复 generateDatabase 表计数问题：`GaussDBMProvider.generateDatabase()` 在每次 CREATE TABLE 后调用 `updateSchema()`，避免重复表名
+- 新增布尔值规范化处理：`GaussDBMBooleanNormalizer` 将 M兼容模式返回的 't'/'f' 规范化为 1/0，确保 TLP oracle 结果比较一致性
+- 修复 GaussDBToStringVisitor 子查询输出：为 SELECT 类型表达式添加括号包裹，解决 CODDTEST 等 oracle 生成的标量子查询语法错误
+- 全量类型支持验证：INT/VARCHAR/FLOAT/DOUBLE/DECIMAL/DATE/TIME/DATETIME/TIMESTAMP/YEAR 10种数据类型在 INSERT/CREATE TABLE/表达式生成中均正常工作
+- 验证结果：GaussDB-M 执行 192 查询（27 queries/s，成功率 100%），14 个 oracle（NOREC/TLP_WHERE/HAVING/GROUP_BY/AGGREGATE/DISTINCT/PQS/CERT/FUZZER/DQP/DQE/EET/CODDTEST/QUERY_PARTITIONING）全部稳定运行
 - 新增 PostgreSQL bombard 并发压测模式：`postgres --bombard=true --bombard-workers=N` 支持单 database 多 worker 并发执行随机 SQL；该模式独立于 oracle，复用 PostgreSQL 现有 mutator 权重并混合随机 SELECT，同时排除 `DISCARD`、`TRUNCATE`、`VACUUM`、`CLUSTER`、`REINDEX`、`CREATE_TABLESPACE` 等不适合长跑并发压测的高风险动作
 
 ## v0.1.73 | 2026-04-21

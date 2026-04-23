@@ -127,7 +127,15 @@ public class GaussDBToStringVisitor extends ToStringVisitor<GaussDBExpression> {
 
     public void visit(GaussDBOracleAlias alias) {
         if (alias.getOriginalExpression() != null) {
-            visit(alias.getOriginalExpression());
+            GaussDBExpression expr = alias.getOriginalExpression();
+            // Wrap subqueries in parentheses for M-compatibility
+            if (expr instanceof GaussDBSelect) {
+                sb.append("(");
+                visit(expr);
+                sb.append(")");
+            } else {
+                visit(expr);
+            }
         } else {
             sb.append("NULL");
         }

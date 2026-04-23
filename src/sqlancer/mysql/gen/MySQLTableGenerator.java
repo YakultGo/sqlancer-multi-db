@@ -346,13 +346,14 @@ public class MySQLTableGenerator {
     }
 
     private enum ColumnOptions {
-        NULL_OR_NOT_NULL, UNIQUE, COMMENT, COLUMN_FORMAT, STORAGE, PRIMARY_KEY
+        NULL_OR_NOT_NULL, UNIQUE, COMMENT, COLUMN_FORMAT, STORAGE, PRIMARY_KEY, AUTO_INCREMENT, DEFAULT_VALUE
     }
 
     private void appendColumnOption(MySQLDataType type) {
         boolean isTextType = type == MySQLDataType.VARCHAR;
         boolean isBlobType = type == MySQLDataType.BLOB || type == MySQLDataType.BINARY || type == MySQLDataType.VARBINARY;
         boolean isJsonType = type == MySQLDataType.JSON;
+        boolean isIntType = type == MySQLDataType.INT;
         boolean isNull = false;
         boolean columnHasPrimaryKey = false;
         List<ColumnOptions> columnOptions = Randomly.subset(ColumnOptions.values());
@@ -364,6 +365,10 @@ public class MySQLTableGenerator {
         if (isTextType || isBlobType || isJsonType) {
             columnOptions.remove(ColumnOptions.PRIMARY_KEY);
             columnOptions.remove(ColumnOptions.UNIQUE);
+        }
+        // AUTO_INCREMENT only works on INT types
+        if (!isIntType) {
+            columnOptions.remove(ColumnOptions.AUTO_INCREMENT);
         }
         for (ColumnOptions o : columnOptions) {
             sb.append(" ");
@@ -407,9 +412,111 @@ public class MySQLTableGenerator {
                     columnHasPrimaryKey = true;
                 }
                 break;
+            case AUTO_INCREMENT:
+                // AUTO_INCREMENT requires NOT NULL (enforced by MySQL)
+                // Must be a key (PRIMARY KEY or UNIQUE) - but MySQL will auto-create unique index if not specified
+                if (isIntType) {
+                    sb.append("AUTO_INCREMENT");
+                    keysSpecified++;
+                }
+                break;
+            case DEFAULT_VALUE:
+                // Generate appropriate default value based on column type
+                appendDefaultValue(type);
+                break;
             default:
                 throw new AssertionError();
             }
+        }
+    }
+
+    /**
+     * Generate DEFAULT value based on column type
+     */
+    private void appendDefaultValue(MySQLDataType type) {
+        sb.append("DEFAULT ");
+        switch (type) {
+        case INT:
+            sb.append(r.getInteger(-100, 100));
+            break;
+        case FLOAT:
+        case DOUBLE:
+            sb.append(r.getDouble());
+            break;
+        case DECIMAL:
+            sb.append(r.getDouble());
+            break;
+        case VARCHAR:
+            sb.append("'");
+            sb.append(r.getString().replace("'", "\\'").replace("\\", "\\\\"));
+            sb.append("'");
+            break;
+        case DATE:
+            sb.append("'");
+            sb.append(String.format("%04d-%02d-%02d", r.getInteger(1901, 2155), r.getInteger(1, 12), r.getInteger(1, 28)));
+            sb.append("'");
+            break;
+        case TIME:
+            sb.append("'");
+            sb.append(String.format("%02d:%02d:%02d", r.getInteger(0, 23), r.getInteger(0, 59), r.getInteger(0, 59)));
+            sb.append("'");
+            break;
+        case DATETIME:
+            sb.append("'");
+            sb.append(String.format("%04d-%02d-%02d %02d:%02d:%02d",
+                    r.getInteger(1901, 2155), r.getInteger(1, 12), r.getInteger(1, 28),
+                    r.getInteger(0, 23), r.getInteger(0, 59), r.getInteger(0, 59)));
+            sb.append("'");
+            break;
+        case TIMESTAMP:
+            // Use CURRENT_TIMESTAMP for TIMESTAMP as it's more common and avoids range issues
+            if (Randomly.getBoolean()) {
+                sb.append("CURRENT_TIMESTAMP");
+            } else {
+                sb.append("'");
+                sb.append(String.format("%04d-%02d-%02d %02d:%02d:%02d",
+                        r.getInteger(1970, 2037), r.getInteger(1, 12), r.getInteger(1, 28),
+                        r.getInteger(0, 23), r.getInteger(0, 59), r.getInteger(0, 59)));
+                sb.append("'");
+            }
+            break;
+        case YEAR:
+            sb.append(r.getInteger(1901, 2155));
+            break;
+        case BIT:
+            sb.append(r.getLong(0, (1L << Math.min(r.getInteger(1, 64), 63))));
+            break;
+        case ENUM:
+            // For ENUM, use numeric index or string value
+            if (Randomly.getBoolean()) {
+                sb.append(1); // Default to first enum value by index
+            } else {
+                sb.append("'e0'"); // Default enum value
+            }
+            break;
+        case SET:
+            // For SET, use empty string or single value
+            sb.append("''");
+            break;
+        case JSON:
+            // For JSON, use NULL or simple JSON
+            if (Randomly.getBoolean()) {
+                sb.append("NULL");
+            } else {
+                sb.append("'{}'");
+            }
+            break;
+        case BINARY:
+        case VARBINARY:
+            // For binary, use hex representation
+            sb.append("0x00");
+            break;
+        case BLOB:
+            // BLOB cannot have DEFAULT value in MySQL
+            return; // Skip adding DEFAULT for BLOB
+        default:
+            sb.append("NULL");
+            break;
         }
     }
 
@@ -541,7 +648,7 @@ public class MySQLTableGenerator {
             if (Randomly.getBoolean() && randomType != MySQLDataType.INT && !MySQLBugs.bug99127) {
                 sb.append(" UNSIGNED");
             }
-            if (!globalState.usesPQS() && Randomly.getBoolean()) {
+            if (Randomly.getBoolean()) {
                 sb.append(" ZEROFILL");
             }
         }

@@ -220,4 +220,302 @@ class MySQLFunctionTest {
     }
 
     // 注意：COALESCE 和 IF 函数需要 origArgs 参数，这里简化测试
+
+    // ========== 扩展字符串函数测试 ==========
+
+    @Test
+    void substring_normalCase_returnsSubstring() {
+        MySQLConstant str = MySQLConstant.createStringConstant("HelloWorld");
+        MySQLConstant pos = MySQLConstant.createIntConstant(1);
+        MySQLConstant result = MySQLFunction.SUBSTRING.apply(new MySQLConstant[]{str, pos});
+        assertEquals("HelloWorld", result.getString());
+    }
+
+    @Test
+    void substring_withLength_returnsSubstring() {
+        MySQLConstant str = MySQLConstant.createStringConstant("HelloWorld");
+        MySQLConstant pos = MySQLConstant.createIntConstant(1);
+        MySQLConstant len = MySQLConstant.createIntConstant(5);
+        MySQLConstant result = MySQLFunction.SUBSTRING.apply(new MySQLConstant[]{str, pos, len});
+        assertEquals("Hello", result.getString());
+    }
+
+    @Test
+    void substring_negativePos_returnsFromEnd() {
+        MySQLConstant str = MySQLConstant.createStringConstant("HelloWorld");
+        MySQLConstant pos = MySQLConstant.createIntConstant(-5);
+        MySQLConstant result = MySQLFunction.SUBSTRING.apply(new MySQLConstant[]{str, pos});
+        assertEquals("World", result.getString());
+    }
+
+    @Test
+    void substring_nullInput_returnsNull() {
+        MySQLConstant str = MySQLConstant.createNullConstant();
+        MySQLConstant pos = MySQLConstant.createIntConstant(1);
+        MySQLConstant result = MySQLFunction.SUBSTRING.apply(new MySQLConstant[]{str, pos});
+        assertTrue(result.isNull());
+    }
+
+    @Test
+    void replace_normalCase_returnsReplaced() {
+        MySQLConstant str = MySQLConstant.createStringConstant("HelloWorld");
+        MySQLConstant from = MySQLConstant.createStringConstant("World");
+        MySQLConstant to = MySQLConstant.createStringConstant("MySQL");
+        MySQLConstant result = MySQLFunction.REPLACE.apply(new MySQLConstant[]{str, from, to});
+        assertEquals("HelloMySQL", result.getString());
+    }
+
+    @Test
+    void replace_notFound_returnsOriginal() {
+        MySQLConstant str = MySQLConstant.createStringConstant("Hello");
+        MySQLConstant from = MySQLConstant.createStringConstant("World");
+        MySQLConstant to = MySQLConstant.createStringConstant("MySQL");
+        MySQLConstant result = MySQLFunction.REPLACE.apply(new MySQLConstant[]{str, from, to});
+        assertEquals("Hello", result.getString());
+    }
+
+    @Test
+    void locate_found_returnsPosition() {
+        MySQLConstant substr = MySQLConstant.createStringConstant("World");
+        MySQLConstant str = MySQLConstant.createStringConstant("HelloWorld");
+        MySQLConstant result = MySQLFunction.LOCATE.apply(new MySQLConstant[]{substr, str});
+        assertEquals(6, result.getInt());
+    }
+
+    @Test
+    void locate_notFound_returnsZero() {
+        MySQLConstant substr = MySQLConstant.createStringConstant("MySQL");
+        MySQLConstant str = MySQLConstant.createStringConstant("HelloWorld");
+        MySQLConstant result = MySQLFunction.LOCATE.apply(new MySQLConstant[]{substr, str});
+        assertEquals(0, result.getInt());
+    }
+
+    @Test
+    void instr_normalCase_returnsPosition() {
+        MySQLConstant str = MySQLConstant.createStringConstant("HelloWorld");
+        MySQLConstant substr = MySQLConstant.createStringConstant("World");
+        MySQLConstant result = MySQLFunction.INSTR.apply(new MySQLConstant[]{str, substr});
+        assertEquals(6, result.getInt());
+    }
+
+    @Test
+    void lpad_normalCase_returnsPadded() {
+        MySQLConstant str = MySQLConstant.createStringConstant("Hello");
+        MySQLConstant len = MySQLConstant.createIntConstant(10);
+        MySQLConstant pad = MySQLConstant.createStringConstant("-");
+        MySQLConstant result = MySQLFunction.LPAD.apply(new MySQLConstant[]{str, len, pad});
+        assertEquals("-----Hello", result.getString());
+    }
+
+    @Test
+    void rpad_normalCase_returnsPadded() {
+        MySQLConstant str = MySQLConstant.createStringConstant("Hello");
+        MySQLConstant len = MySQLConstant.createIntConstant(10);
+        MySQLConstant pad = MySQLConstant.createStringConstant("-");
+        MySQLConstant result = MySQLFunction.RPAD.apply(new MySQLConstant[]{str, len, pad});
+        assertEquals("Hello-----", result.getString());
+    }
+
+    @Test
+    void reverse_normalCase_returnsReversed() {
+        MySQLConstant str = MySQLConstant.createStringConstant("Hello");
+        MySQLConstant result = MySQLFunction.REVERSE.apply(new MySQLConstant[]{str});
+        assertEquals("olleH", result.getString());
+    }
+
+    @Test
+    void repeat_normalCase_returnsRepeated() {
+        MySQLConstant str = MySQLConstant.createStringConstant("Hi");
+        MySQLConstant count = MySQLConstant.createIntConstant(3);
+        MySQLConstant result = MySQLFunction.REPEAT.apply(new MySQLConstant[]{str, count});
+        assertEquals("HiHiHi", result.getString());
+    }
+
+    @Test
+    void space_normalCase_returnsSpaces() {
+        MySQLConstant count = MySQLConstant.createIntConstant(5);
+        MySQLConstant result = MySQLFunction.SPACE.apply(new MySQLConstant[]{count});
+        assertEquals("     ", result.getString());
+    }
+
+    @Test
+    void ascii_normalCase_returnsAsciiValue() {
+        MySQLConstant str = MySQLConstant.createStringConstant("A");
+        MySQLConstant result = MySQLFunction.ASCII.apply(new MySQLConstant[]{str});
+        assertEquals(65, result.getInt());
+    }
+
+    @Test
+    void charLength_normalCase_returnsLength() {
+        MySQLConstant str = MySQLConstant.createStringConstant("Hello");
+        MySQLConstant result = MySQLFunction.CHAR_LENGTH.apply(new MySQLConstant[]{str});
+        assertEquals(5, result.getInt());
+    }
+
+    @Test
+    void concatWs_normalCase_returnsConcatenated() {
+        MySQLConstant sep = MySQLConstant.createStringConstant(",");
+        MySQLConstant str1 = MySQLConstant.createStringConstant("Hello");
+        MySQLConstant str2 = MySQLConstant.createStringConstant("World");
+        MySQLConstant result = MySQLFunction.CONCAT_WS.apply(new MySQLConstant[]{sep, str1, str2});
+        assertEquals("Hello,World", result.getString());
+    }
+
+    @Test
+    void concatWs_withNull_skipsNull() {
+        MySQLConstant sep = MySQLConstant.createStringConstant(",");
+        MySQLConstant str1 = MySQLConstant.createStringConstant("Hello");
+        MySQLConstant str2 = MySQLConstant.createNullConstant();
+        MySQLConstant str3 = MySQLConstant.createStringConstant("World");
+        MySQLConstant result = MySQLFunction.CONCAT_WS.apply(new MySQLConstant[]{sep, str1, str2, str3});
+        assertEquals("Hello,World", result.getString());
+    }
+
+    @Test
+    void ltrim_withLeadingSpaces_returnsTrimmed() {
+        MySQLConstant str = MySQLConstant.createStringConstant("   Hello");
+        MySQLConstant result = MySQLFunction.LTRIM.apply(new MySQLConstant[]{str});
+        assertEquals("Hello", result.getString());
+    }
+
+    @Test
+    void rtrim_withTrailingSpaces_returnsTrimmed() {
+        MySQLConstant str = MySQLConstant.createStringConstant("Hello   ");
+        MySQLConstant result = MySQLFunction.RTRIM.apply(new MySQLConstant[]{str});
+        assertEquals("Hello", result.getString());
+    }
+
+    // ========== 扩展 JSON 函数测试 ==========
+
+    @Test
+    void jsonArray_normalCase_returnsArray() {
+        MySQLConstant val1 = MySQLConstant.createStringConstant("Hello");
+        MySQLConstant val2 = MySQLConstant.createIntConstant(42);
+        MySQLConstant result = MySQLFunction.JSON_ARRAY.apply(new MySQLConstant[]{val1, val2});
+        assertTrue(result.getString().startsWith("["));
+        assertTrue(result.getString().contains("Hello"));
+        assertTrue(result.getString().contains("42"));
+    }
+
+    @Test
+    void jsonObject_normalCase_returnsObject() {
+        MySQLConstant key1 = MySQLConstant.createStringConstant("name");
+        MySQLConstant val1 = MySQLConstant.createStringConstant("John");
+        MySQLConstant result = MySQLFunction.JSON_OBJECT.apply(new MySQLConstant[]{key1, val1});
+        assertTrue(result.getString().startsWith("{"));
+        assertTrue(result.getString().contains("name"));
+        assertTrue(result.getString().contains("John"));
+    }
+
+    // ========== 扩展时间日期函数测试 ==========
+
+    @Test
+    void year_normalDate_returnsYear() {
+        MySQLConstant date = new MySQLConstant.MySQLDateConstant(2024, 6, 15);
+        MySQLConstant result = MySQLFunction.YEAR.apply(new MySQLConstant[]{date});
+        assertEquals(2024, result.getInt());
+    }
+
+    @Test
+    void month_normalDate_returnsMonth() {
+        MySQLConstant date = new MySQLConstant.MySQLDateConstant(2024, 6, 15);
+        MySQLConstant result = MySQLFunction.MONTH.apply(new MySQLConstant[]{date});
+        assertEquals(6, result.getInt());
+    }
+
+    @Test
+    void day_normalDate_returnsDay() {
+        MySQLConstant date = new MySQLConstant.MySQLDateConstant(2024, 6, 15);
+        MySQLConstant result = MySQLFunction.DAY.apply(new MySQLConstant[]{date});
+        assertEquals(15, result.getInt());
+    }
+
+    @Test
+    void dayOfWeek_sunday_returns1() {
+        MySQLConstant date = new MySQLConstant.MySQLDateConstant(2024, 1, 7); // Sunday
+        MySQLConstant result = MySQLFunction.DAYOFWEEK.apply(new MySQLConstant[]{date});
+        assertEquals(1, result.getInt());
+    }
+
+    @Test
+    void dayOfYear_firstDay_returns1() {
+        MySQLConstant date = new MySQLConstant.MySQLDateConstant(2024, 1, 1);
+        MySQLConstant result = MySQLFunction.DAYOFYEAR.apply(new MySQLConstant[]{date});
+        assertEquals(1, result.getInt());
+    }
+
+    @Test
+    void quarter_firstQuarter_returns1() {
+        MySQLConstant date = new MySQLConstant.MySQLDateConstant(2024, 2, 15);
+        MySQLConstant result = MySQLFunction.QUARTER.apply(new MySQLConstant[]{date});
+        assertEquals(1, result.getInt());
+    }
+
+    @Test
+    void quarter_secondQuarter_returns2() {
+        MySQLConstant date = new MySQLConstant.MySQLDateConstant(2024, 5, 15);
+        MySQLConstant result = MySQLFunction.QUARTER.apply(new MySQLConstant[]{date});
+        assertEquals(2, result.getInt());
+    }
+
+    @Test
+    void hour_normalTime_returnsHour() {
+        MySQLConstant time = new MySQLConstant.MySQLTimeConstant(14, 30, 45);
+        MySQLConstant result = MySQLFunction.HOUR.apply(new MySQLConstant[]{time});
+        assertEquals(14, result.getInt());
+    }
+
+    @Test
+    void minute_normalTime_returnsMinute() {
+        MySQLConstant time = new MySQLConstant.MySQLTimeConstant(14, 30, 45);
+        MySQLConstant result = MySQLFunction.MINUTE.apply(new MySQLConstant[]{time});
+        assertEquals(30, result.getInt());
+    }
+
+    @Test
+    void second_normalTime_returnsSecond() {
+        MySQLConstant time = new MySQLConstant.MySQLTimeConstant(14, 30, 45);
+        MySQLConstant result = MySQLFunction.SECOND.apply(new MySQLConstant[]{time});
+        assertEquals(45, result.getInt());
+    }
+
+    @Test
+    void dateDiff_sameDates_returnsZero() {
+        MySQLConstant date1 = new MySQLConstant.MySQLDateConstant(2024, 6, 15);
+        MySQLConstant date2 = new MySQLConstant.MySQLDateConstant(2024, 6, 15);
+        MySQLConstant result = MySQLFunction.DATEDIFF.apply(new MySQLConstant[]{date1, date2});
+        assertEquals(0, result.getInt());
+    }
+
+    @Test
+    void dateDiff_oneDayDifference_returns1() {
+        MySQLConstant date1 = new MySQLConstant.MySQLDateConstant(2024, 6, 16);
+        MySQLConstant date2 = new MySQLConstant.MySQLDateConstant(2024, 6, 15);
+        MySQLConstant result = MySQLFunction.DATEDIFF.apply(new MySQLConstant[]{date1, date2});
+        assertEquals(1, result.getInt());
+    }
+
+    @Test
+    void dateDiff_reverseOrder_returnsNegative() {
+        MySQLConstant date1 = new MySQLConstant.MySQLDateConstant(2024, 6, 15);
+        MySQLConstant date2 = new MySQLConstant.MySQLDateConstant(2024, 6, 16);
+        MySQLConstant result = MySQLFunction.DATEDIFF.apply(new MySQLConstant[]{date1, date2});
+        assertEquals(-1, result.getInt());
+    }
+
+    @Test
+    void lastDay_normalDate_returnsLastDay() {
+        MySQLConstant date = new MySQLConstant.MySQLDateConstant(2024, 6, 15);
+        MySQLConstant result = MySQLFunction.LAST_DAY.apply(new MySQLConstant[]{date});
+        // June has 30 days
+        assertEquals("2024-06-30", result.castAsString());
+    }
+
+    @Test
+    void lastDay_february_returnsLastDay() {
+        MySQLConstant date = new MySQLConstant.MySQLDateConstant(2024, 2, 15);
+        MySQLConstant result = MySQLFunction.LAST_DAY.apply(new MySQLConstant[]{date});
+        // 2024 is a leap year, February has 29 days
+        assertEquals("2024-02-29", result.castAsString());
+    }
 }

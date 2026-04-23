@@ -65,7 +65,7 @@ java -jar sqlancer-2.0.0.jar --use-reducer mysql --oracle EET
 - 时间：DATE, TIME, DATETIME, TIMESTAMP, YEAR
 - JSON：JSON（含 JSON_TYPE/JSON_VALID 函数）
 - 枚举：ENUM, SET
-- 空间：GEOMETRY, POINT, LINESTRING, POLYGON
+
 
 ### 2.2 PostgreSQL（完整支持）
 
@@ -95,7 +95,7 @@ java -jar sqlancer-2.0.0.jar --use-reducer mysql --oracle EET
 - UUID：UUID
 - 数组：ARRAY (INT[], VARCHAR[]等)
 - 枚举：ENUM
-- 空间：GEOMETRY（需PostGIS扩展）
+
 
 **PostgreSQL 专属参数**：
 ```bash
@@ -331,6 +331,19 @@ java -jar target/sqlancer-2.0.0.jar \
 - MySQL JSON/BLOB/BINARY 类型支持
 
 ---
+
+sqlancer指定版本号的编译方法：
+  总结：                                                                                                                             
+                                                                                                                                     
+  ┌─────────────────────────────────────────────────────────────────────┬──────────────────────┐                                     
+  │                              构建方式                               │       输出文件       │                                     
+  ├─────────────────────────────────────────────────────────────────────┼──────────────────────┤                                     
+  │ mvn package -DskipTests                                             │ sqlancer-2.0.0.jar   │                                     
+  ├─────────────────────────────────────────────────────────────────────┼──────────────────────┤                                     
+  │ mvn package -Drevision=2.0.100 -DskipTests                          │ sqlancer-2.0.100.jar │                                     
+  ├─────────────────────────────────────────────────────────────────────┼──────────────────────┤                                     
+  │ mvn package -Drevision=2.0.$(git rev-list --count HEAD) -DskipTests │ sqlancer-2.0.15.jar  │                                     
+  └─────────────────────────────────────────────────────────────────────┴──────────────────────┘ 
 
 ## 九、参考链接
 
