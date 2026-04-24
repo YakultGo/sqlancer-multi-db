@@ -32,20 +32,27 @@ import sqlancer.common.DBMSCommon;
 import sqlancer.common.query.SQLQueryAdapter;
 import sqlancer.common.query.SQLQueryProvider;
 import sqlancer.common.query.SQLancerResultSet;
+import sqlancer.postgres.gen.PostgresAlterIndexGenerator;
 import sqlancer.postgres.gen.PostgresAlterTableGenerator;
 import sqlancer.postgres.gen.PostgresAnalyzeGenerator;
 import sqlancer.postgres.gen.PostgresClusterGenerator;
 import sqlancer.postgres.gen.PostgresCommentGenerator;
+import sqlancer.postgres.gen.PostgresCopyGenerator;
 import sqlancer.postgres.gen.PostgresDeleteGenerator;
 import sqlancer.postgres.gen.PostgresDiscardGenerator;
 import sqlancer.postgres.gen.PostgresDropIndexGenerator;
+import sqlancer.postgres.gen.PostgresDropTableGenerator;
+import sqlancer.postgres.gen.PostgresDropViewGenerator;
 import sqlancer.postgres.gen.PostgresExplainGenerator;
+import sqlancer.postgres.gen.PostgresFunctionGenerator;
 import sqlancer.postgres.gen.PostgresIndexGenerator;
 import sqlancer.postgres.gen.PostgresInsertGenerator;
+import sqlancer.postgres.gen.PostgresMergeGenerator;
 import sqlancer.postgres.gen.PostgresNotifyGenerator;
 import sqlancer.postgres.gen.PostgresPartitionGenerator;
 import sqlancer.postgres.gen.PostgresRandomQueryGenerator;
 import sqlancer.postgres.gen.PostgresReindexGenerator;
+import sqlancer.postgres.gen.PostgresRuleGenerator;
 import sqlancer.postgres.gen.PostgresSequenceGenerator;
 import sqlancer.postgres.gen.PostgresSetGenerator;
 import sqlancer.postgres.gen.PostgresStatisticsGenerator;
@@ -53,6 +60,7 @@ import sqlancer.postgres.gen.PostgresTableGenerator;
 import sqlancer.postgres.gen.PostgresTableSpaceGenerator;
 import sqlancer.postgres.gen.PostgresTransactionGenerator;
 import sqlancer.postgres.gen.PostgresTruncateGenerator;
+import sqlancer.postgres.gen.PostgresTypeGenerator;
 import sqlancer.postgres.gen.PostgresUpdateGenerator;
 import sqlancer.postgres.gen.PostgresVacuumGenerator;
 import sqlancer.postgres.gen.PostgresViewGenerator;
@@ -88,6 +96,7 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
 
     public enum Action implements AbstractAction<PostgresGlobalState> {
         ANALYZE(PostgresAnalyzeGenerator::create), //
+        ALTER_INDEX(PostgresAlterIndexGenerator::create), //
         ALTER_TABLE(g -> PostgresAlterTableGenerator.create(g.getSchema().getRandomTable(t -> !t.isView()), g)), //
         CLUSTER(PostgresClusterGenerator::create), //
         COMMIT(g -> {
@@ -102,16 +111,23 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
             return query;
         }), //
         CREATE_STATISTICS(PostgresStatisticsGenerator::insert), //
+        CREATE_TYPE(PostgresTypeGenerator::createCompositeType), //
         DROP_STATISTICS(PostgresStatisticsGenerator::remove), //
         ALTER_STATISTICS(PostgresStatisticsGenerator::alter), //
+        CREATE_FUNCTION(PostgresFunctionGenerator::createFunction), //
+        CREATE_RULE(PostgresRuleGenerator::create), //
         DELETE(PostgresDeleteGenerator::create), //
         DISCARD(PostgresDiscardGenerator::create), //
         DROP_INDEX(PostgresDropIndexGenerator::create), //
+        DROP_TABLE(PostgresDropTableGenerator::create), //
+        DROP_VIEW(PostgresDropViewGenerator::create), //
         CREATE_PARTITION(PostgresPartitionGenerator::createPartition), //
         ATTACH_PARTITION(PostgresPartitionGenerator::attachPartition), //
         DETACH_PARTITION(PostgresPartitionGenerator::detachPartition), //
         DROP_PARTITION(PostgresPartitionGenerator::dropPartition), //
         INSERT(PostgresInsertGenerator::insert), //
+        MERGE(PostgresMergeGenerator::create), //
+        COPY(PostgresCopyGenerator::create), //
         UPDATE(PostgresUpdateGenerator::create), //
         TRUNCATE(PostgresTruncateGenerator::create), //
         VACUUM(PostgresVacuumGenerator::create), //
@@ -134,6 +150,8 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         LISTEN((g) -> PostgresNotifyGenerator.createListen()), //
         UNLISTEN((g) -> PostgresNotifyGenerator.createUnlisten()), //
         CREATE_SEQUENCE(PostgresSequenceGenerator::createSequence), //
+        DROP_SEQUENCE(PostgresSequenceGenerator::dropSequence), //
+        ALTER_SEQUENCE(PostgresSequenceGenerator::alterSequence), //
         CREATE_VIEW(PostgresViewGenerator::create), //
         CREATE_TABLESPACE(PostgresTableSpaceGenerator::generate);
 
@@ -156,6 +174,9 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         case CREATE_INDEX:
             nrPerformed = r.getInteger(1, 5);
             break;
+        case ALTER_INDEX:
+            nrPerformed = hasAnyIndex(globalState) ? r.getInteger(0, 3) : 0;
+            break;
         case CLUSTER:
             // CLUSTER can be very expensive (reorders entire table)
             nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
@@ -164,12 +185,22 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
             // CREATE STATISTICS can be expensive for large tables
             nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
             break;
+        case CREATE_TYPE:
+        case CREATE_FUNCTION:
+        case CREATE_RULE:
+            nrPerformed = r.getInteger(0, 2);
+            break;
         case ALTER_STATISTICS:
             nrPerformed = r.getInteger(0, 3);
             break;
         case DISCARD:
         case DROP_INDEX:
             nrPerformed = r.getInteger(0, 6);
+            break;
+        case DROP_TABLE:
+        case DROP_VIEW:
+        case DROP_SEQUENCE:
+            nrPerformed = Randomly.getBooleanWithRatherLowProbability() ? r.getInteger(0, 1) : 0;
             break;
         case CREATE_PARTITION:
             nrPerformed = PostgresPartitionGenerator.hasCreatePartitionCandidate(globalState) ? r.getInteger(1, 5) : 0;
@@ -199,6 +230,12 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         case SET:
             nrPerformed = r.getInteger(1, 7);
             break;
+        case MERGE:
+            nrPerformed = r.getInteger(0, 2);
+            break;
+        case COPY:
+            nrPerformed = Randomly.getBooleanWithRatherLowProbability() ? r.getInteger(0, 1) : 0;
+            break;
         case ANALYZE:
             // ANALYZE collects statistics and can be slow
             nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
@@ -213,6 +250,7 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         case LISTEN:
         case UNLISTEN:
         case CREATE_SEQUENCE:
+        case ALTER_SEQUENCE:
         case DROP_STATISTICS:
             nrPerformed = r.getInteger(0, 3);
             break;
@@ -239,6 +277,10 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         }
         return nrPerformed;
 
+    }
+
+    private static boolean hasAnyIndex(PostgresGlobalState globalState) {
+        return globalState.getSchema().getDatabaseTables().stream().anyMatch(t -> !t.getIndexes().isEmpty());
     }
 
     @Override
@@ -518,6 +560,10 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         case ATTACH_PARTITION:
         case DETACH_PARTITION:
         case DROP_PARTITION:
+        case DROP_TABLE:
+        case DROP_VIEW:
+        case DROP_SEQUENCE:
+        case COPY:
             return true;
         default:
             return false;

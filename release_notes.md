@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.1.81 | 2026-04-24
+- 扩展 PostgreSQL DDL/DML 随机生成覆盖（触发器与权限语句暂不启用）：
+  - **DDL 增强**：新增独立 `DROP TABLE`、`DROP VIEW`、`DROP SEQUENCE` 生成器；新增 `ALTER SEQUENCE` 与 `ALTER INDEX` 生成器
+  - **对象覆盖**：新增 composite `CREATE TYPE`、简单 SQL `CREATE FUNCTION` 与 `CREATE RULE` 生成
+  - **索引覆盖**：`CREATE INDEX` 的 access method 扩展到 `SPGIST`、`BRIN`，并补充相关预期错误
+  - **DML 增强**：新增 PostgreSQL 15+ `MERGE` 生成；新增低频 `COPY ... TO STDOUT` 语法探针，避免高频 JDBC COPY 失败噪声
+  - **稳定性处理**：新 action 使用保守权重；补充 `MERGE` 在 `GENERATED ALWAYS` identity 列上的预期错误（`can only be updated to DEFAULT` 等）
+- 验证结果：`mvn -q -DskipTests compile` 与 `mvn -q package -DskipTests` 通过
+
 ## v0.1.80 | 2026-04-22
 - 启用 MySQL bug workarounds，扩展测试覆盖范围：
   - **启用 Bug #99135**：二进制位操作（&, |, ^）现在可在表达式生成中使用
