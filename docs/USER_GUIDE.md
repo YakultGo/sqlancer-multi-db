@@ -1,6 +1,6 @@
 # SQLancer User Guide
 
-**Version**: v0.1.73 (2026-04-21)  
+**Version**: v0.1.82 (2026-04-25)  
 **Supported Databases**: MySQL, PostgreSQL, GaussDB-A, GaussDB-PG, GaussDB-M, and 20+ other DBMS
 
 ## Introduction
@@ -11,6 +11,42 @@ SQLancer is a tool for testing database management systems by generating random 
 - **GaussDB Support**: A-compatibility mode (Oracle-style), PG-compatibility mode, and M-compatibility mode (MySQL-style)
 - **Extended Data Types**: JSON, BLOB, temporal types, arrays, enums, spatial types
 - **Internationalization**: Handles non-English server error messages
+- **Single-Jar Packaging**: All dependencies bundled, run with `java -jar`
+
+---
+
+## Quick Start
+
+### Build
+
+```bash
+# Clone project
+git clone https://github.com/jack-xiao-china/sqlancer-multi-db.git
+cd sqlancer-multi-db
+
+# Build (lib/ contains openGauss JDBC driver)
+mvn clean package -DskipTests
+
+# Output: ~387MB single jar with all dependencies
+ls -lh target/sqlancer-2.0.0.jar
+```
+
+### Run
+
+**Recommended** (all dependencies included in jar):
+```bash
+java -jar target/sqlancer-2.0.0.jar mysql --oracle QUERY_PARTITIONING
+java -jar target/sqlancer-2.0.0.jar gaussdb-m --host xxx --port xxx --username xxx --password xxx
+```
+
+**Alternative** (use external classpath):
+```bash
+# Linux/macOS
+java -cp "target/sqlancer-2.0.0.jar:target/lib/*" sqlancer.Main mysql --oracle NOREC
+
+# Windows
+java -cp "target/sqlancer-2.0.0.jar;target/lib/*" sqlancer.Main mysql --oracle NOREC
+```
 
 ---
 
@@ -463,6 +499,12 @@ java -Xmx4g -jar sqlancer.jar ...
 ---
 
 # Version History
+
+## v0.1.82 (2026-04-25)
+- **Packaging**: All dependencies bundled into single jar (~387MB)
+- **Driver**: Unified openGauss JDBC driver (supports SM3 authentication)
+- **lib directory**: Local driver jars, no Maven download required
+- **Simplified**: Run directly with `java -jar`
 
 ## v0.1.73 (2026-04-21)
 - Integration verification: MySQL, PostgreSQL, GaussDB-PG, GaussDB-A all stable

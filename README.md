@@ -1,6 +1,6 @@
 # SQLancer 用户使用指导
 
-**文档版本**: v0.1.81 (2026-04-24)  
+**文档版本**: v0.1.82 (2026-04-25)  
 **参考源码**: [SQLancer GitHub](https://github.com/sqlancer/sqlancer)  
 
 本版本扩展了 SQLancer 对 MySQL、PostgreSQL、GaussDB-A、GaussDB-PG、GaussDB-M 等数据库的全面支持，包括：
@@ -9,10 +9,63 @@
 - **GaussDB 三种兼容模式**：A兼容（Oracle风格）、PG兼容、M兼容（MySQL风格）
 - **扩展数据类型**：JSON、BLOB、Temporal、Array、Enum、Spatial等
 - **国际化支持**：支持中文、德文、日文等非英文服务器错误消息处理
+- **单文件打包**：所有依赖打包到单个jar，支持 `java -jar` 直接运行
 
 ---
 
-## 一、支持数据库总览
+## 一、快速开始
+
+### 1.1 编译
+
+```bash
+# 克隆项目
+git clone https://github.com/jack-xiao-china/sqlancer-multi-db.git
+cd sqlancer-multi-db
+
+# 编译（lib目录已包含GaussDB驱动）
+mvn clean package -DskipTests
+
+# 编译完成后，target目录生成约387MB的单文件jar
+ls -lh target/sqlancer-2.0.0.jar
+```
+
+### 1.2 运行
+
+**推荐方式**：`java -jar` 直接运行（所有依赖已打包）
+
+```bash
+# MySQL测试
+java -jar target/sqlancer-2.0.0.jar \
+    --host localhost --port 3306 \
+    --username root --password your_password \
+    mysql --oracle QUERY_PARTITIONING
+
+# GaussDB-M测试
+java -jar target/sqlancer-2.0.0.jar \
+    --host localhost --port 19995 \
+    --username sqlbuilder1 --password your_password \
+    gaussdb-m --oracle AGGREGATE
+
+# GaussDB-A测试
+java -jar target/sqlancer-2.0.0.jar \
+    --host localhost --port 8000 \
+    --username tpcc --password your_password \
+    gaussdb-a --oracle QUERY_PARTITIONING
+```
+
+**备用方式**：使用外部classpath（适用于需要替换驱动的场景）
+
+```bash
+# Linux/macOS
+java -cp "target/sqlancer-2.0.0.jar:target/lib/*" sqlancer.Main mysql --oracle NOREC
+
+# Windows
+java -cp "target/sqlancer-2.0.0.jar;target/lib/*" sqlancer.Main mysql --oracle NOREC
+```
+
+---
+
+## 二、支持数据库总览
 
 | 数据库 | 支持Oracle数 | 数据类型覆盖 | 状态 |
 |--------|-------------|-------------|------|
@@ -116,6 +169,8 @@ java -jar sqlancer-2.0.0.jar --use-reducer mysql --oracle EET
 
 GaussDB-A 支持 Oracle 风格的 SQL 语法和数据类型。
 
+**⚠️ 重要：必须使用 `--target-database` 指定A兼容数据库**
+
 | Oracle | 说明 |
 |--------|------|
 | `TLP_WHERE` | TLP WHERE 子句分区 |
@@ -132,13 +187,24 @@ GaussDB-A 支持 Oracle 风格的 SQL 语法和数据类型。
 | `EET` | 等价表达式变换 |
 | `FUZZER` | 随机 Fuzzer |
 
+**前置准备**：
+```sql
+-- 必须先创建A兼容数据库
+CREATE DATABASE gaussdb_a_test WITH dbcompatibility 'A';
+```
+
 **连接示例**：
 ```bash
-java -jar sqlancer-2.0.0.jar \
-    --host localhost --port 5432 \
+java -jar target/sqlancer-2.0.0.jar \
+    --host localhost --port 8000 \
     --username tpcc --password Taurus@123 \
-    gaussdb-a --oracle QUERY_PARTITIONING
+    gaussdb-a --target-database gaussdb_a_test --oracle QUERY_PARTITIONING
 ```
+
+**说明**：
+- 使用内置的openGauss JDBC驱动（支持SM3/sha256认证）
+- JDBC URL自动构建为 `jdbc:opengauss://host:port/database`
+- 在指定数据库下创建Schema进行测试隔离（不创建新数据库）
 
 **创建A兼容数据库**：
 ```sql
@@ -173,7 +239,7 @@ GaussDB-PG 支持 PostgreSQL 风格的 SQL 语法。
 
 **连接示例**：
 ```bash
-java -jar sqlancer-2.0.0.jar \
+java -jar target/sqlancer-2.0.0.jar \
     --host localhost --port 5432 \
     --username tpcc --password Taurus@123 \
     gaussdb-pg --oracle QUERY_PARTITIONING
@@ -207,11 +273,16 @@ GaussDB-M 支持 MySQL 风格的 SQL 语法。
 
 **连接示例**：
 ```bash
-java -jar sqlancer-2.0.0.jar \
-    --connection-url "jdbc:gaussdb://127.0.0.1:8000/test" \
-    --username sqlancer --password sqlancer \
+java -jar target/sqlancer-2.0.0.jar \
+    --host localhost --port 19995 \
+    --username sqlbuilder1 --password your_password \
     gaussdb-m --oracle QUERY_PARTITIONING
 ```
+
+**说明**：
+- 使用内置openGauss JDBC驱动连接
+- 自动创建M兼容测试数据库
+- 无需手动创建数据库或指定连接URL
 
 **创建M兼容数据库**：
 ```sql
@@ -308,16 +379,34 @@ java -jar target/sqlancer-2.0.0.jar \
 
 ### GaussDB-A 测试
 ```bash
+# 前置：创建A兼容数据库
+# CREATE DATABASE gaussdb_a_test WITH dbcompatibility 'A';
+
 java -jar target/sqlancer-2.0.0.jar \
-    --host localhost --port 5432 \
+    --host localhost --port 8000 \
     --username tpcc --password Taurus@123 \
     --num-tries 10 --timeout-seconds 100 \
-    gaussdb-a --oracle QUERY_PARTITIONING
+    gaussdb-a --target-database gaussdb_a_test --oracle QUERY_PARTITIONING
+```
+
+### GaussDB-M 测试
+```bash
+java -jar target/sqlancer-2.0.0.jar \
+    --host localhost --port 19995 \
+    --username sqlbuilder1 --password your_password \
+    --num-tries 10 --timeout-seconds 100 \
+    gaussdb-m --oracle QUERY_PARTITIONING
 ```
 
 ---
 
 ## 八、版本历史
+
+### v0.1.82 (2026-04-25)
+- **打包方式变更**：所有依赖打包到单个jar文件，支持 `java -jar` 直接运行
+- **驱动更新**：统一使用openGauss JDBC驱动（支持SM3认证）
+- **lib目录**：驱动jar本地化，无需Maven下载
+- **简化运行**：无需指定classpath，直接运行即可
 
 ### v0.1.81 (2026-04-24)
 - 扩展 PostgreSQL DDL/DML 生成：DROP/ALTER 对象、composite CREATE TYPE、CREATE FUNCTION、CREATE RULE、MERGE、低频 COPY

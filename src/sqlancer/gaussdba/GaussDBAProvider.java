@@ -118,10 +118,22 @@ public class GaussDBAProvider extends SQLProviderAdapter<GaussDBAGlobalState, Ga
         int port = options.getPort();
 
         GaussDBAOptions gaussdbaOptions = globalState.getDbmsSpecificOptions();
-        String targetDatabase = gaussdbaOptions != null && gaussdbaOptions.targetDatabase != null
-                ? gaussdbaOptions.targetDatabase : "postgres";
+        String targetDatabase = gaussdbaOptions != null ? gaussdbaOptions.targetDatabase : null;
 
-        // Build JDBC URL using opengauss scheme (preferred) or postgresql as fallback
+        // Require user to specify A-compatible target database
+        if (targetDatabase == null || targetDatabase.isBlank()) {
+            String msg = "ERROR: --target-database is REQUIRED for GaussDB-A testing.\n\n";
+            msg += "Please create an A-compatible database first:\n";
+            msg += "  CREATE DATABASE <db_name> WITH dbcompatibility 'A';\n\n";
+            msg += "Then specify it with:\n";
+            msg += "  java -jar sqlancer.jar gaussdb-a --target-database <db_name> ...\n\n";
+            msg += "Example:\n";
+            msg += "  CREATE DATABASE gaussdb_a_test WITH dbcompatibility 'A';\n";
+            msg += "  java -jar sqlancer.jar gaussdb-a --target-database gaussdb_a_test --oracle QUERY_PARTITIONING";
+            throw new SQLException(msg);
+        }
+
+        // Build JDBC URL using opengauss scheme
         String baseParams = "sslmode=disable&connectTimeout=10&socketTimeout=30";
         String jdbcUrl;
         String configuredUrl = options.getConnectionURL();
@@ -176,12 +188,16 @@ public class GaussDBAProvider extends SQLProviderAdapter<GaussDBAGlobalState, Ga
         }
 
         if (con == null) {
-            String msg = "Connection failed to GaussDB-A. Last error: " + (lastError != null ? lastError.getMessage() : "null");
-            msg += "\n\nPossible solutions:";
-            msg += "\n1. Ensure lib/opengauss-jdbc.jar is in classpath";
-            msg += "\n2. Use --connection-url to specify full JDBC URL";
-            msg += "\n3. Check if target database is A-compatible mode";
-            msg += "\n4. Verify host, port, username, password are correct";
+            String msg = "Connection failed to GaussDB-A database '" + targetDatabase + "'.\n";
+            msg += "Last error: " + (lastError != null ? lastError.getMessage() : "null") + "\n\n";
+            msg += "Possible solutions:\n";
+            msg += "1. Verify the database exists and is A-compatible:\n";
+            msg += "   SELECT datcompatibility FROM pg_database WHERE datname = '" + targetDatabase + "';\n";
+            msg += "   (Should return 'A')\n\n";
+            msg += "2. If not A-compatible, create it:\n";
+            msg += "   CREATE DATABASE " + targetDatabase + " WITH dbcompatibility 'A';\n\n";
+            msg += "3. Verify host, port, username, password are correct\n";
+            msg += "4. Check network connectivity to GaussDB server";
             throw new SQLException(msg, lastError);
         }
 
