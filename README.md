@@ -7,9 +7,9 @@
 
 - **14种 Test Oracle**：TLP系列、NoREC、PQS、CERT、DQP、DQE、EET、CODDTEST、FUZZER
 - **GaussDB 三种兼容模式**：A兼容（Oracle风格）、PG兼容、M兼容（MySQL风格）
-- **扩展数据类型**：JSON、BLOB、Temporal、Array、Enum、Spatial等
+- **扩展数据类型**：JSON、BLOB、Temporal、Array、Enum等
 - **国际化支持**：支持中文、德文、日文等非英文服务器错误消息处理
-- **单文件打包**：所有依赖打包到单个jar，支持 `java -jar` 直接运行
+- **轻量打包**：jar约4MB，依赖放在lib/目录，通过manifest Class-Path加载
 
 ---
 
@@ -25,7 +25,7 @@ cd sqlancer-multi-db
 # 编译（lib目录已包含GaussDB驱动）
 mvn clean package -DskipTests
 
-# 编译完成后，target目录生成约387MB的单文件jar
+# 编译完成后，target目录生成约4MB的jar文件
 ls -lh target/sqlancer-2.0.0.jar
 ```
 
@@ -69,11 +69,11 @@ java -cp "target/sqlancer-2.0.0.jar;target/lib/*" sqlancer.Main mysql --oracle N
 
 | 数据库 | 支持Oracle数 | 数据类型覆盖 | 状态 |
 |--------|-------------|-------------|------|
-| **MySQL** | 14种 | 完整（含JSON/BLOB/Spatial） | ✅ 已验证 |
+| **MySQL** | 14种 | 完整（含JSON/BLOB） | ✅ 已验证 |
 | **PostgreSQL** | 14种 | 完整（含Temporal/JSONB/Array） | ✅ 已验证 |
 | **GaussDB-A** | 13种 | 完整（含CLOB/BLOB） | ✅ 已验证 |
 | **GaussDB-PG** | 13种 | 完整（含Temporal） | ✅ 已验证 |
-| **GaussDB-M** | 14种 | MySQL风格 | ⚠️ 需M兼容库 |
+| **GaussDB-M** | 14种 | MySQL风格 | ✅ 已验证 |
 | SQLite3 | 10种 | 基础 | ✅ |
 | TiDB | 5种 | 基础 | ✅ |
 | CockroachDB | 8种 | 基础 | ✅ |
@@ -162,7 +162,7 @@ java -jar sqlancer-2.0.0.jar --use-reducer mysql --oracle EET
 --pg-table-columns 10             # CREATE TABLE 列数
 --pg-generate-sql-num 3           # INSERT 行数
 --pg-index-model 0                # 索引生成模式(0-6)
---extensions "pg_trgm,postgis"    # 预创建扩展
+--extensions "pg_trgm"    # 预创建扩展
 ```
 
 ### 2.3 GaussDB-A（A兼容模式）
@@ -403,10 +403,10 @@ java -jar target/sqlancer-2.0.0.jar \
 ## 八、版本历史
 
 ### v0.1.82 (2026-04-25)
-- **打包方式变更**：所有依赖打包到单个jar文件，支持 `java -jar` 直接运行
-- **驱动更新**：统一使用openGauss JDBC驱动（支持SM3认证）
-- **lib目录**：驱动jar本地化，无需Maven下载
-- **简化运行**：无需指定classpath，直接运行即可
+- **GaussDB-M验证通过**：14种Oracle全面验证
+- **打包优化**：恢复轻量打包(~4MB)，依赖通过manifest Class-Path加载
+- **驱动本地化**：lib目录包含opengauss-jdbc驱动，无需Maven下载
+- **运行简化**：支持 `java -jar` 直接运行，也支持classpath方式
 
 ### v0.1.81 (2026-04-24)
 - 扩展 PostgreSQL DDL/DML 生成：DROP/ALTER 对象、composite CREATE TYPE、CREATE FUNCTION、CREATE RULE、MERGE、低频 COPY
