@@ -16,4 +16,6 @@ database*.script
 database*.lck
 databases/
 logs/
-.settings/
+# Keep .settings/org.eclipse.jdt.core.prefs (required by maven-compiler-plugin)
+.settings/*
+!.settings/org.eclipse.jdt.core.prefs
