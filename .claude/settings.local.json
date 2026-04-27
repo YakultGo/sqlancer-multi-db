@@ -15,7 +15,7 @@
       "Bash(python:*)",
       "Bash(bash analyze_sqlancer_logs.sh scan)",
       "Bash(mkdir -p logs/json_coverage_test)",
-      "Bash(java -jar target/sqlancer-2.0.0.jar --host localhost --port 5432 --username root --password password --database-prefix jsontest --num-tries 1 --timeout-seconds 120 --num-threads 1 postgres --enable-json true --oracle WHERE --log-each-select true)",
+      "Bash(java -jar target/sqlancer-2.0.0.jar --host localhost --port 5432 --username tpcc --password your_password --database-prefix jsontest --num-tries 1 --timeout-seconds 120 --num-threads 1 postgres --enable-json true --oracle WHERE --log-each-select true)",
       "Bash(tee logs/json_coverage_test/where_test.log)",
       "Bash(tee logs/json_coverage_test/eet_test.log)",
       "Bash(tee logs/json_coverage_test/eet_full_test.log)",
@@ -51,8 +51,8 @@
       "Bash(tee logs/postgres/oracle_verification_2026_0415/fuzzer.log)",
       "Bash(wc -l docs/*.md)",
       "Bash(unzip -l sqlancer-2.0.0.jar)",
-      "Bash(PGPASSWORD=\"password\" psql *)",
-      "Bash(psql -h localhost -p 5432 -U root -d root -t -A -c ' *)",
+      "Bash(PGPASSWORD=\"your_password\" psql *)",
+      "Bash(psql -h localhost -p 5432 -U tpcc -d tpcc -t -A -c ' *)",
       "Read(//tmp/**)",
       "Bash(gh repo *)",
       "Bash(gh search *)",
@@ -95,18 +95,11 @@
       "Bash(C:/Users/Jerry.Xiao/.claude/plugins/cache/claude-plugins-official/ralph-loop/1.0.0/scripts/setup-ralph-loop.sh *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(ping *)",
-      "Bash(git stash *)",
-      "WebFetch(domain:bugs.mysql.com)",
-      "Bash(git remote *)",
-      "Bash(git pull *)",
-      "Bash(awk '{sum+=$3; fail+=$5; err+=$7; skip+=$9} END {print \"Total tests: \" sum \", Failures: \" fail \", Errors: \" err \", Skipped: \" skip}')",
-      "Bash(jar tf *)",
-      "Bash(unzip *)",
-      "WebFetch(domain:opengauss.org)",
-      "WebFetch(domain:mvnrepository.com)",
-      "Bash(mvn dependency:get -Dartifact=org.opengauss:opengauss-jdbc:6.0.2-og -DremoteRepositories=https://repo1.maven.org/maven2)",
-      "Bash(mvn dependency:tree)"
+      "Bash(rm -f logs/*.log)",
+      "Bash(rm -rf logs/postgres/*)",
+      "Bash(java -jar target/sqlancer-2.0.0.jar --username postgres --password your_password --num-threads 8 --timeout-seconds 30 --num-tries 20 --database-prefix norec_ postgres --oracle NOREC)",
+      "Bash(java -jar target/sqlancer-2.0.0.jar --username postgres --password your_password --num-threads 8 --timeout-seconds 30 --num-tries 20 --database-prefix pqs_ postgres --oracle PQS)",
+      "Bash(java -jar target/sqlancer-2.0.0.jar --username postgres --password your_password --num-threads 8 --timeout-seconds 30 --num-tries 20 --database-prefix tlp_ postgres --oracle TLP_WHERE)"
     ]
   }
 }
