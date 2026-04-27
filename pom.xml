@@ -78,6 +78,7 @@
               <goal>shade</goal>
             </goals>
             <configuration>
+              <!-- Only shade jcommander, keep jar lightweight (~4MB) -->
               <artifactSet>
                 <includes>
                   <include>com.beust:jcommander</include>
@@ -92,7 +93,9 @@
         <artifactId>maven-antrun-plugin</artifactId>
         <version>3.1.0</version>
         <executions>
+          <!-- Copy lib/*.jar to target/lib/ for distribution -->
           <execution>
+            <id>copy-lib-jars</id>
             <phase>package</phase>
             <goals>
               <goal>run</goal>
@@ -100,8 +103,10 @@
             <configuration>
               <target>
                 <mkdir dir="${project.build.directory}/lib" />
-                <copy file="${project.basedir}/src/sqlancer/gaussdb/gsjdbc4.jar"
-                  tofile="${project.build.directory}/lib/gsjdbc4.jar" overwrite="true" />
+                <!-- Copy local JDBC drivers from lib/ to target/lib/ -->
+                <copy todir="${project.build.directory}/lib" overwrite="true">
+                  <fileset dir="${project.basedir}/lib" includes="*.jar" erroronmissingdir="false" />
+                </copy>
                 <delete>
                   <fileset dir="${project.build.directory}/" includes="original-sqlancer-*.jar" />
                 </delete>
@@ -196,7 +201,7 @@
               <overWriteReleases>false</overWriteReleases>
               <overWriteSnapshots>false</overWriteSnapshots>
               <overWriteIfNewer>true</overWriteIfNewer>
-              <excludeArtifactIds>jcommander</excludeArtifactIds>
+              <excludeArtifactIds>jcommander,opengauss-jdbc</excludeArtifactIds>
             </configuration>
           </execution>
         </executions>
@@ -213,6 +218,10 @@
               <classpathPrefix>lib/</classpathPrefix>
               <mainClass>sqlancer.Main</mainClass>
             </manifest>
+            <!-- Manually add opengauss-jdbc to Class-Path (system scope deps not auto-added) -->
+            <manifestEntries>
+              <Class-Path>lib/opengauss-jdbc-6.0.2-og.jar</Class-Path>
+            </manifestEntries>
           </archive>
         </configuration>
       </plugin>
@@ -423,20 +432,14 @@
       <version>4.0.1</version>
     </dependency>
 
-    <!-- GaussDB JDBC driver (local jar) -->
-    <dependency>
-      <groupId>com.huawei.gaussdb</groupId>
-      <artifactId>gsjdbc4</artifactId>
-      <version>4</version>
-      <scope>system</scope>
-      <systemPath>${project.basedir}/src/sqlancer/gaussdb/gsjdbc4.jar</systemPath>
-    </dependency>
-
-    <!-- openGauss JDBC driver (recommended for GaussDB connections) -->
+    <!-- GaussDB JDBC driver (local jar for portability) -->
+    <!-- Note: Copy opengauss-jdbc.jar to lib/ directory before building -->
     <dependency>
       <groupId>org.opengauss</groupId>
       <artifactId>opengauss-jdbc</artifactId>
       <version>6.0.2-og</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/opengauss-jdbc-6.0.2-og.jar</systemPath>
     </dependency>
   </dependencies>
   <reporting>

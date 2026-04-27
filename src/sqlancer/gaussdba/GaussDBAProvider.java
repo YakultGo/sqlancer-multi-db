@@ -34,22 +34,13 @@ public class GaussDBAProvider extends SQLProviderAdapter<GaussDBAGlobalState, Ga
         if (driverLoaded) {
             return;
         }
-        // Try to load openGauss driver first (recommended for GaussDB)
+        // Load openGauss JDBC driver (supports SM3/sha256 authentication)
         try {
             Class.forName("org.opengauss.Driver");
             System.err.println("[INFO] Loaded openGauss JDBC driver (org.opengauss.Driver)");
             driverLoaded = true;
-            return;
         } catch (ClassNotFoundException e) {
-            System.err.println("[INFO] openGauss driver not found, trying PostgreSQL driver...");
-        }
-        // Fallback to PostgreSQL driver
-        try {
-            Class.forName("org.postgresql.Driver");
-            System.err.println("[INFO] Loaded PostgreSQL JDBC driver (org.postgresql.Driver)");
-            driverLoaded = true;
-        } catch (ClassNotFoundException e) {
-            throw new AssertionError("No JDBC driver available. Please ensure opengauss-jdbc or postgresql driver is in classpath.", e);
+            throw new AssertionError("JDBC driver not found. Please ensure lib/opengauss-jdbc.jar is in classpath.", e);
         }
     }
 
@@ -127,10 +118,22 @@ public class GaussDBAProvider extends SQLProviderAdapter<GaussDBAGlobalState, Ga
         int port = options.getPort();
 
         GaussDBAOptions gaussdbaOptions = globalState.getDbmsSpecificOptions();
-        String targetDatabase = gaussdbaOptions != null && gaussdbaOptions.targetDatabase != null
-                ? gaussdbaOptions.targetDatabase : "postgres";
+        String targetDatabase = gaussdbaOptions != null ? gaussdbaOptions.targetDatabase : null;
 
-        // Build JDBC URL using opengauss scheme (preferred) or postgresql as fallback
+        // Require user to specify A-compatible target database
+        if (targetDatabase == null || targetDatabase.isBlank()) {
+            String msg = "ERROR: --target-database is REQUIRED for GaussDB-A testing.\n\n";
+            msg += "Please create an A-compatible database first:\n";
+            msg += "  CREATE DATABASE <db_name> WITH dbcompatibility 'A';\n\n";
+            msg += "Then specify it with:\n";
+            msg += "  java -jar sqlancer.jar gaussdb-a --target-database <db_name> ...\n\n";
+            msg += "Example:\n";
+            msg += "  CREATE DATABASE gaussdb_a_test WITH dbcompatibility 'A';\n";
+            msg += "  java -jar sqlancer.jar gaussdb-a --target-database gaussdb_a_test --oracle QUERY_PARTITIONING";
+            throw new SQLException(msg);
+        }
+
+        // Build JDBC URL using opengauss scheme
         String baseParams = "sslmode=disable&connectTimeout=10&socketTimeout=30";
         String jdbcUrl;
         String configuredUrl = options.getConnectionURL();
@@ -160,8 +163,8 @@ public class GaussDBAProvider extends SQLProviderAdapter<GaussDBAGlobalState, Ga
                 System.err.println("[ERROR] Connection failed: " + e.getMessage());
             }
         } else {
-            // Try multiple URL schemes: opengauss first, then postgresql as fallback
-            String[] urlSchemes = { "opengauss", "postgresql" };
+            // Use opengauss JDBC URL scheme
+            String[] urlSchemes = { "opengauss" };
 
             for (String scheme : urlSchemes) {
                 jdbcUrl = String.format("jdbc:%s://%s:%d/%s?%s", scheme, host, port, targetDatabase, baseParams);
@@ -185,12 +188,16 @@ public class GaussDBAProvider extends SQLProviderAdapter<GaussDBAGlobalState, Ga
         }
 
         if (con == null) {
-            String msg = "Connection failed to GaussDB-A. Last error: " + (lastError != null ? lastError.getMessage() : "null");
-            msg += "\n\nPossible solutions:";
-            msg += "\n1. Ensure opengauss-jdbc driver is in classpath (recommended)";
-            msg += "\n2. Use --connection-url to specify full JDBC URL";
-            msg += "\n3. Check if target database is A-compatible mode";
-            msg += "\n4. Verify host, port, username, password are correct";
+            String msg = "Connection failed to GaussDB-A database '" + targetDatabase + "'.\n";
+            msg += "Last error: " + (lastError != null ? lastError.getMessage() : "null") + "\n\n";
+            msg += "Possible solutions:\n";
+            msg += "1. Verify the database exists and is A-compatible:\n";
+            msg += "   SELECT datcompatibility FROM pg_database WHERE datname = '" + targetDatabase + "';\n";
+            msg += "   (Should return 'A')\n\n";
+            msg += "2. If not A-compatible, create it:\n";
+            msg += "   CREATE DATABASE " + targetDatabase + " WITH dbcompatibility 'A';\n\n";
+            msg += "3. Verify host, port, username, password are correct\n";
+            msg += "4. Check network connectivity to GaussDB server";
             throw new SQLException(msg, lastError);
         }
 
@@ -206,9 +213,10 @@ public class GaussDBAProvider extends SQLProviderAdapter<GaussDBAGlobalState, Ga
         // Verify database compatibility mode
         verifyCompatibilityMode(con, targetDatabase);
 
-        String schemaName = globalState.getDatabaseName();
+        String schemaName = globalState.getDatabaseName().toLowerCase();
 
         // Create schema for test isolation (A兼容模式也支持schema)
+        // Use lowercase to ensure consistent matching in information_schema queries
         try (Statement s = con.createStatement()) {
             String dropSql = "DROP SCHEMA IF EXISTS " + schemaName + " CASCADE";
             String createSql = "CREATE SCHEMA " + schemaName;

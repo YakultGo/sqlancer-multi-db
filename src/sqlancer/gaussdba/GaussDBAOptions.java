@@ -20,7 +20,7 @@ public class GaussDBAOptions implements DBMSSpecificOptions<GaussDBAOracleFactor
     @Parameter(names = "--enable-clob-blob", description = "Enable CLOB/BLOB types")
     public boolean enableClobBlob = false;
 
-    @Parameter(names = "--target-database", description = "A-compatible database to connect (must be created with 'CREATE DATABASE ... WITH dbcompatibility A')")
+    @Parameter(names = "--target-database", description = "A-compatible database to connect (REQUIRED). Must be created with 'CREATE DATABASE xxx WITH dbcompatibility A'", required = true)
     public String targetDatabase = null;
 
     @Override
