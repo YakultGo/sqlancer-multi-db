@@ -9,7 +9,7 @@
 
 **关键约束**：
 - **隔离**：新增 oracle 需与现有 oracle 实现隔离，互相独立
-- **不影响其他 DBMS**：不改变 MySQL/GaussDBM/SQLite3/TiDB 等数据库的 oracle 行为
+- **PostgreSQL-only**：当前分支仅保留 PostgreSQL provider 与相关 oracle
 - **接入方式**：扩展现有 `PostgresOracleFactory`（入口补齐），新增实现放入独立包
 
 > 说明：扩展枚举入口与“实现隔离”并不冲突。隔离重点放在新增实现类、expected errors、开关与默认行为不变上。
@@ -130,24 +130,20 @@ flowchart TD
   - 重点：先限制高风险语法（窗口函数、复杂 grouping sets 等）以降低误报
 
 ### 4.4 新增：`DQP` / `DQE` / `EET` / `CODDTEST`
-这些 oracle 在 Postgres 侧缺失，但项目里已有通用基类与其他 DBMS 的实现可参考：
+这些 oracle 在 Postgres 侧缺失，但项目里已有通用基类可参考：
 
 - `DQE`
   - 通用基类：`sqlancer/common/oracle/DQEBase.java`
-  - 参考：MySQL、GaussDBM 的 DQE 实现
   - Postgres 策略：最小可运行版本 + 保守禁用高风险语法 + 独立 expected errors
 
 - `DQP`
-  - 参考：MySQL、GaussDBM、TiDB 的 DQP 实现
   - Postgres 策略：优先对接 `EXPLAIN`/plan 提取能力，解析失败则跳过样本不误报
 
 - `EET`
-  - 参考：MySQL/GaussDBM 的 EET 实现
   - Postgres 策略：先限定在简单表达式子集，逐步扩面
 
 - `CODDTEST`
   - 通用基类：`sqlancer/common/oracle/CODDTestBase.java`
-  - 参考：MySQL/SQLite3/GaussDBM 的 CODDTEST 实现
   - Postgres 策略：类型白名单 + 保守约束，避免类型系统导致的不可判定情形
 
 ---
@@ -191,4 +187,3 @@ flowchart TD
 - **单元测试**：每新增一个 oracle/入口，补齐对应单元测试覆盖核心路径
 - **全量回归**：`mvn test`（或项目既定构建命令）全绿，确保其他 DBMS 的测试不受影响
 - **发布记录**：实现完成后按项目规则更新 `release_notes.md`（版本末位递增，日期 2026-04-10）
-
