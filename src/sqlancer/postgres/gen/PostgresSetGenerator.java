@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.function.Function;
 
 import sqlancer.Randomly;
+import sqlancer.common.query.ExpectedErrors;
 import sqlancer.common.query.SQLQueryAdapter;
 import sqlancer.postgres.PostgresGlobalState;
 
@@ -142,7 +143,7 @@ public final class PostgresSetGenerator {
         } else {
             sb.append(option.op.apply(globalState.getRandomly()));
         }
-        return new SQLQueryAdapter(sb.toString());
+        return new SQLQueryAdapter(sb.toString(), ExpectedErrors.from("permission denied to set parameter"));
     }
 
 }
