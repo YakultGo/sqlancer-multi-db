@@ -39,6 +39,7 @@ public final class PostgresInsertGenerator {
         errors.add("current transaction is aborted");
         errors.add("bit string too long");
         errors.add("new row violates check option for view");
+        errors.add("new row violates row-level security policy for table");
         errors.add("reached maximum value of sequence");
         errors.add("but expression is of type");
         StringBuilder sb = new StringBuilder();

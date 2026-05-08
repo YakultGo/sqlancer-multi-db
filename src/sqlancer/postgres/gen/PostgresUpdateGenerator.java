@@ -51,6 +51,7 @@ public final class PostgresUpdateGenerator extends AbstractUpdateGenerator<Postg
         errors.add("multiple assignments to same column"); // view whose columns refer to a column in the referenced
                                                            // table multiple times
         errors.add("new row violates check option for view");
+        errors.add("new row violates row-level security policy for table");
         PostgresCommon.addCommonInsertUpdateErrors(errors);
         updateColumns(columns);
         errors.add("invalid input syntax for ");

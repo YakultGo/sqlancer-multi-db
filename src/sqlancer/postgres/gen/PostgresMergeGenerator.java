@@ -60,6 +60,7 @@ public final class PostgresMergeGenerator {
         errors.add("violates foreign key constraint");
         errors.add("violates not-null constraint");
         errors.add("no partition of relation");
+        errors.add("new row violates row-level security policy for table");
         errors.add("MERGE command cannot affect row a second time");
         errors.add("cannot execute MERGE in a read-only transaction");
         errors.add("can only be updated to DEFAULT");

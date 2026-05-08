@@ -178,6 +178,7 @@ public final class PostgresCommon {
 
         errors.add("negative substring length not allowed"); // substr
         errors.add("invalid mask length"); // set_masklen
+        errors.add("permission denied for function"); // e.g. pg_current_logfile
 
         return errors;
     }
