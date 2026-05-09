@@ -29,6 +29,8 @@ import sqlancer.postgres.ast.PostgresConstant;
 
 public class PostgresSchema extends AbstractSchema<PostgresGlobalState, PostgresTable> {
 
+    public static final int MAX_RANDOM_FROM_TABLES = 4;
+
     private final String databaseName;
 
     public enum PostgresDataType {
@@ -741,7 +743,8 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
     }
 
     public PostgresTables getRandomTableNonEmptyTables() {
-        return new PostgresTables(Randomly.nonEmptySubset(getDatabaseTables()));
+        int nrTables = Math.min(getDatabaseTables().size(), MAX_RANDOM_FROM_TABLES);
+        return new PostgresTables(Randomly.nonEmptySubset(getDatabaseTables(), nrTables));
     }
 
     public String getDatabaseName() {

@@ -25,6 +25,7 @@ import sqlancer.postgres.PostgresBugs;
 import sqlancer.postgres.PostgresCompoundDataType;
 import sqlancer.postgres.PostgresGlobalState;
 import sqlancer.postgres.PostgresProvider;
+import sqlancer.postgres.PostgresSchema;
 import sqlancer.postgres.PostgresSchema.PostgresColumn;
 import sqlancer.postgres.PostgresSchema.PostgresDataType;
 import sqlancer.postgres.PostgresSchema.PostgresRowValue;
@@ -1234,8 +1235,13 @@ public class PostgresExpressionGenerator implements ExpressionGenerator<Postgres
     @Override
     public PostgresExpressionGenerator setTablesAndColumns(
             sqlancer.common.schema.AbstractTables<PostgresTable, PostgresColumn> targetTables) {
-        this.targetTables = targetTables.getTables();
-        this.columns = targetTables.getColumns();
+        List<PostgresTable> tables = targetTables.getTables();
+        if (tables.size() > PostgresSchema.MAX_RANDOM_FROM_TABLES) {
+            tables = Randomly.nonEmptySubset(tables, PostgresSchema.MAX_RANDOM_FROM_TABLES);
+        }
+        this.targetTables = new ArrayList<>(tables);
+        this.columns = targetTables.getColumns().stream().filter(c -> this.targetTables.contains(c.getTable()))
+                .collect(Collectors.toList());
         return this;
     }
 

@@ -80,11 +80,15 @@ public final class PostgresIndexGenerator {
         case PRIMARY_KEY:
             return generatePrimaryKey(globalState);
         case UNIQUE:
+            return generateUniqueIndex(globalState);
         case COMPOSITE:
+            return generateCompositeIndex(globalState);
         case PREFIX_EXPR:
+            return generatePrefixExpressionIndex(globalState);
         case SUFFIX_EXPR:
+            return generateSuffixExpressionIndex(globalState);
         case EXPRESSION:
-            return generateCreateIndex(globalState, effectiveModel);
+            return generateExpressionIndex(globalState);
         default:
             throw new AssertionError(effectiveModel);
         }
@@ -108,12 +112,64 @@ public final class PostgresIndexGenerator {
         return new SQLQueryAdapter(sb.toString(), errors);
     }
 
-    private static SQLQueryAdapter generateCreateIndex(PostgresGlobalState globalState, PostgresIndexModel model) {
+    private static SQLQueryAdapter generateUniqueIndex(PostgresGlobalState globalState) {
         ExpectedErrors errors = new ExpectedErrors();
         PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
-        boolean unique = model == PostgresIndexModel.UNIQUE;
-        IndexType method = chooseIndexType(model, unique);
-        List<IndexElement> elements = createIndexElements(globalState, randomTable, model, method, errors);
+        int nrColumns = Math.min(randomTable.getColumns().size(), Math.max(1, Randomly.smallNumber() + 1));
+        List<IndexElement> elements = createPlainIndexElements(globalState, randomTable, nrColumns, IndexType.BTREE,
+                errors);
+        addSharedIndexErrors(errors);
+        addUniqueErrors(errors);
+        return generateCreateIndex(randomTable, true, IndexType.BTREE, elements, globalState, errors);
+    }
+
+    private static SQLQueryAdapter generateCompositeIndex(PostgresGlobalState globalState) {
+        ExpectedErrors errors = new ExpectedErrors();
+        PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
+        IndexType method = Randomly.fromOptions(IndexType.BTREE, IndexType.GIST, IndexType.GIN, IndexType.BRIN);
+        int nrColumns = Math.min(randomTable.getColumns().size(), Math.max(2, Randomly.smallNumber() + 2));
+        List<IndexElement> elements = createPlainIndexElements(globalState, randomTable, nrColumns, method, errors);
+        addSharedIndexErrors(errors);
+        return generateCreateIndex(randomTable, false, method, elements, globalState, errors);
+    }
+
+    private static SQLQueryAdapter generatePrefixExpressionIndex(PostgresGlobalState globalState) {
+        ExpectedErrors errors = new ExpectedErrors();
+        PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
+        IndexType method = chooseExpressionIndexType();
+        List<IndexElement> elements = createExpressionPositionIndexElements(globalState, randomTable,
+                PostgresIndexModel.PREFIX_EXPR, method, errors, true);
+        addSharedIndexErrors(errors);
+        return generateCreateIndex(randomTable, false, method, elements, globalState, errors);
+    }
+
+    private static SQLQueryAdapter generateSuffixExpressionIndex(PostgresGlobalState globalState) {
+        ExpectedErrors errors = new ExpectedErrors();
+        PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
+        IndexType method = chooseExpressionIndexType();
+        List<IndexElement> elements = createExpressionPositionIndexElements(globalState, randomTable,
+                PostgresIndexModel.SUFFIX_EXPR, method, errors, false);
+        addSharedIndexErrors(errors);
+        return generateCreateIndex(randomTable, false, method, elements, globalState, errors);
+    }
+
+    private static SQLQueryAdapter generateExpressionIndex(PostgresGlobalState globalState) {
+        ExpectedErrors errors = new ExpectedErrors();
+        PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
+        IndexType method = chooseExpressionIndexType();
+        int nrElements = Math.min(randomTable.getColumns().size(), Math.max(1, Randomly.smallNumber() + 1));
+        List<PostgresColumn> columns = getOrderedColumns(randomTable, nrElements, false, false);
+        List<IndexElement> elements = new ArrayList<>();
+        for (PostgresColumn column : columns) {
+            elements.add(createExpressionIndexElement(globalState, randomTable, column, PostgresIndexModel.EXPRESSION,
+                    method, errors));
+        }
+        addSharedIndexErrors(errors);
+        return generateCreateIndex(randomTable, false, method, elements, globalState, errors);
+    }
+
+    private static SQLQueryAdapter generateCreateIndex(PostgresTable randomTable, boolean unique, IndexType method,
+            List<IndexElement> elements, PostgresGlobalState globalState, ExpectedErrors errors) {
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE");
         if (unique) {
@@ -139,70 +195,68 @@ public final class PostgresIndexGenerator {
             sb.append(columns.stream().map(PostgresColumn::getName).collect(Collectors.joining(", ")));
             sb.append(")");
         }
-        if (canUseWhereClause(model) && Randomly.getBoolean()) {
+        if (globalState != null && Randomly.getBoolean()) {
             sb.append(" WHERE ");
             PostgresExpression expr = new PostgresExpressionGenerator(globalState).setColumns(randomTable.getColumns())
                     .setGlobalState(globalState).generateExpression(PostgresDataType.BOOLEAN);
             sb.append(PostgresVisitor.asString(expr));
         }
-        addSharedIndexErrors(errors);
-        if (unique) {
-            addUniqueErrors(errors);
-        }
         return new SQLQueryAdapter(sb.toString(), errors);
     }
 
-    private static List<IndexElement> createIndexElements(PostgresGlobalState globalState, PostgresTable randomTable,
-            PostgresIndexModel model, IndexType method, ExpectedErrors errors) {
-        if (method == IndexType.HASH || method == IndexType.BRIN) {
-            return createSingleColumnIndexElements(randomTable);
-        }
-        int minColumns = model == PostgresIndexModel.COMPOSITE ? 2 : 1;
-        int maxColumns = Math.max(minColumns, Math.min(randomTable.getColumns().size(), Randomly.smallNumber() + 1));
-        boolean preferPrefixOrder = model == PostgresIndexModel.PREFIX_EXPR;
-        boolean preferSuffixOrder = model == PostgresIndexModel.SUFFIX_EXPR;
-        List<PostgresColumn> orderedColumns = getOrderedColumns(randomTable, maxColumns, preferPrefixOrder,
-                preferSuffixOrder);
+    private static List<IndexElement> createPlainIndexElements(PostgresGlobalState globalState,
+            PostgresTable randomTable, int nrColumns, IndexType method, ExpectedErrors errors) {
+        List<PostgresColumn> orderedColumns = getOrderedColumns(randomTable, nrColumns, false, false);
         List<IndexElement> elements = new ArrayList<>();
-        boolean addedRequiredExpression = false;
-        for (int i = 0; i < orderedColumns.size(); i++) {
-            PostgresColumn column = orderedColumns.get(i);
-            boolean forceExpression = !addedRequiredExpression && i == orderedColumns.size() - 1;
-            IndexElement element = createIndexElement(globalState, randomTable, column, model, method, errors,
-                    forceExpression);
-            if (isExpressionElement(model, forceExpression, i)) {
-                addedRequiredExpression = true;
+        for (PostgresColumn column : orderedColumns) {
+            elements.add(createColumnIndexElement(globalState, column, method, errors));
+        }
+        return elements;
+    }
+
+    private static List<IndexElement> createExpressionPositionIndexElements(PostgresGlobalState globalState,
+            PostgresTable randomTable, PostgresIndexModel model, IndexType method, ExpectedErrors errors,
+            boolean expressionFirst) {
+        int nrColumns = Math.min(randomTable.getColumns().size(), Math.max(1, Randomly.smallNumber() + 1));
+        List<PostgresColumn> columns = getOrderedColumns(randomTable, nrColumns, false, false);
+        PostgresColumn expressionColumn = Randomly.fromList(columns);
+        List<IndexElement> elements = new ArrayList<>();
+        IndexElement expression = createExpressionIndexElement(globalState, randomTable, expressionColumn, model, method,
+                errors);
+        if (expressionFirst) {
+            elements.add(expression);
+        }
+        for (PostgresColumn column : columns) {
+            if (column != expressionColumn) {
+                elements.add(createColumnIndexElement(globalState, column, method, errors));
             }
-            elements.add(element);
+        }
+        if (!expressionFirst) {
+            elements.add(expression);
         }
         return elements;
     }
 
-    private static boolean isExpressionElement(PostgresIndexModel model, boolean forceExpression, int index) {
-        if (!forceExpression) {
-            return false;
-        }
-        return model == PostgresIndexModel.PREFIX_EXPR || model == PostgresIndexModel.SUFFIX_EXPR
-                || model == PostgresIndexModel.EXPRESSION || index == 0;
-    }
-
-    private static List<IndexElement> createSingleColumnIndexElements(PostgresTable randomTable) {
-        List<IndexElement> elements = new ArrayList<>();
-        elements.add(new IndexElement(randomTable.getRandomColumn().getName()));
-        return elements;
-    }
-
-    private static IndexElement createIndexElement(PostgresGlobalState globalState, PostgresTable randomTable,
-            PostgresColumn column, PostgresIndexModel model, IndexType method, ExpectedErrors errors,
-            boolean forceExpression) {
+    private static IndexElement createColumnIndexElement(PostgresGlobalState globalState, PostgresColumn column,
+            IndexType method, ExpectedErrors errors) {
         StringBuilder sb = new StringBuilder();
-        if (shouldUseExpression(model, forceExpression)) {
-            sb.append("(");
-            sb.append(getExpressionSql(globalState, randomTable, column, model));
-            sb.append(")");
-        } else {
-            sb.append(column.getName());
-        }
+        sb.append(column.getName());
+        appendIndexElementOptions(globalState, sb, method, errors);
+        return new IndexElement(sb.toString());
+    }
+
+    private static IndexElement createExpressionIndexElement(PostgresGlobalState globalState, PostgresTable randomTable,
+            PostgresColumn column, PostgresIndexModel model, IndexType method, ExpectedErrors errors) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+        sb.append(getExpressionSql(globalState, randomTable, column, model));
+        sb.append(")");
+        appendIndexElementOptions(globalState, sb, method, errors);
+        return new IndexElement(sb.toString());
+    }
+
+    private static void appendIndexElementOptions(PostgresGlobalState globalState, StringBuilder sb, IndexType method,
+            ExpectedErrors errors) {
         if (Randomly.getBooleanWithRatherLowProbability()) {
             sb.append(" ");
             sb.append(globalState.getRandomOpclass());
@@ -218,18 +272,6 @@ public final class PostgresIndexGenerator {
                 sb.append(" NULLS ");
                 sb.append(Randomly.fromOptions("FIRST", "LAST"));
             }
-        }
-        return new IndexElement(sb.toString());
-    }
-
-    private static boolean shouldUseExpression(PostgresIndexModel model, boolean forceExpression) {
-        switch (model) {
-        case PREFIX_EXPR:
-        case SUFFIX_EXPR:
-        case EXPRESSION:
-            return forceExpression || Randomly.getBoolean();
-        default:
-            return false;
         }
     }
 
@@ -287,32 +329,12 @@ public final class PostgresIndexGenerator {
         return columns;
     }
 
-    private static IndexType chooseIndexType(PostgresIndexModel model, boolean unique) {
-        if (unique) {
-            return IndexType.BTREE;
-        }
-        switch (model) {
-        case PREFIX_EXPR:
-        case SUFFIX_EXPR:
-        case EXPRESSION:
-            return Randomly.fromOptions(IndexType.BTREE, IndexType.GIST, IndexType.SPGIST, IndexType.BRIN);
-        case COMPOSITE:
-            return Randomly.fromOptions(IndexType.BTREE, IndexType.GIST, IndexType.GIN, IndexType.BRIN);
-        case UNIQUE:
-        case PRIMARY_KEY:
-            throw new AssertionError(model);
-        default:
-            return Randomly.fromOptions(IndexType.BTREE, IndexType.HASH, IndexType.GIST, IndexType.GIN,
-                    IndexType.SPGIST, IndexType.BRIN);
-        }
+    private static IndexType chooseExpressionIndexType() {
+        return Randomly.fromOptions(IndexType.BTREE, IndexType.GIST, IndexType.SPGIST);
     }
 
     private static boolean canUseInclude(IndexType method) {
         return method != IndexType.HASH;
-    }
-
-    private static boolean canUseWhereClause(PostgresIndexModel model) {
-        return model != PostgresIndexModel.PRIMARY_KEY;
     }
 
     private static void addSharedIndexErrors(ExpectedErrors errors) {
