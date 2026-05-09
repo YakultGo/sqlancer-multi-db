@@ -24,6 +24,8 @@ public class StateToReproduce implements Serializable {
 
     public String databaseVersion;
 
+    public String databaseConnectionInfo;
+
     protected long seedValue;
 
     String exception;
@@ -45,6 +47,10 @@ public class StateToReproduce implements Serializable {
 
     public String getDatabaseVersion() {
         return databaseVersion;
+    }
+
+    public String getDatabaseConnectionInfo() {
+        return databaseConnectionInfo;
     }
 
     public DatabaseProvider<?, ?, ?> getDatabaseProvider() {

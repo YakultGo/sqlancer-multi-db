@@ -24,13 +24,18 @@ public abstract class LoggableFactory {
     public abstract Query<?> commentOutQuery(Query<?> query);
 
     public Loggable getInfo(String databaseName, String databaseVersion, long seedValue) {
+        return getInfo(databaseName, databaseVersion, null, seedValue);
+    }
+
+    public Loggable getInfo(String databaseName, String databaseVersion, String databaseConnectionInfo,
+            long seedValue) {
         Date date = new Date();
         DateFormat dateFormat = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
-        return infoToLoggable(dateFormat.format(date), databaseName, databaseVersion, seedValue);
+        return infoToLoggable(dateFormat.format(date), databaseName, databaseVersion, databaseConnectionInfo, seedValue);
     }
 
     protected abstract Loggable infoToLoggable(String time, String databaseName, String databaseVersion,
-            long seedValue);
+            String databaseConnectionInfo, long seedValue);
 
     public abstract Loggable convertStacktraceToLoggable(Throwable throwable);
 

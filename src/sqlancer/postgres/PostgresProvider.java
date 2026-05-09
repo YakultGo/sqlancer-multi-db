@@ -307,6 +307,7 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         try {
             String entryDatabaseName = "postgres";
             ConnectionInfo connectionInfo = resolveConnectionInfo(globalState.getOptions(), opts, "postgres");
+            globalState.getState().databaseConnectionInfo = connectionInfo.getConnectionInfo();
 
             Connection con = DriverManager.getConnection("jdbc:" + connectionInfo.url, connectionInfo.username,
                     connectionInfo.password);
@@ -349,6 +350,8 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
             con.close();
 
             globalState.getState().logStatement(String.format("\\c %s;", databaseName));
+            ConnectionInfo targetConnectionInfo = resolveConnectionInfo(globalState.getOptions(), opts, databaseName);
+            globalState.getState().databaseConnectionInfo = targetConnectionInfo.getConnectionInfo();
             return createDatabaseConnection(globalState.getOptions(), opts, databaseName);
         } catch (URISyntaxException e) {
             throw new AssertionError(e);
@@ -634,18 +637,24 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         }
         URI dbUri = new URI(uri.getScheme(), null, resolvedHost, resolvedPort, "/" + targetDatabase, uri.getQuery(),
                 uri.getFragment());
-        return new ConnectionInfo(resolvedUsername, resolvedPassword, dbUri.toString());
+        return new ConnectionInfo(resolvedUsername, resolvedPassword, resolvedHost, dbUri.toString());
     }
 
     private static final class ConnectionInfo {
         private final String username;
         private final String password;
+        private final String host;
         private final String url;
 
-        private ConnectionInfo(String username, String password, String url) {
+        private ConnectionInfo(String username, String password, String host, String url) {
             this.username = username;
             this.password = password;
+            this.host = host;
             this.url = url;
+        }
+
+        private String getConnectionInfo() {
+            return host;
         }
     }
 

@@ -306,8 +306,8 @@ public final class Main {
         private void printState(FileWriter writer, StateToReproduce state) {
             StringBuilder sb = new StringBuilder();
 
-            sb.append(databaseProvider.getLoggableFactory()
-                    .getInfo(state.getDatabaseName(), state.getDatabaseVersion(), state.getSeedValue()).getLogString());
+            sb.append(databaseProvider.getLoggableFactory().getInfo(state.getDatabaseName(), state.getDatabaseVersion(),
+                    state.getDatabaseConnectionInfo(), state.getSeedValue()).getLogString());
 
             for (Query<?> s : state.getStatements()) {
                 sb.append(databaseProvider.getLoggableFactory().createLoggable(s.getLogString()).getLogString());
