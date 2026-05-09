@@ -76,17 +76,6 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
     private static final List<String> enumTypeNames = new ArrayList<>();
     private static final Map<String, List<String>> enumTypeLabels = new HashMap<>();
 
-    protected String entryURL;
-    protected String username;
-    protected String password;
-    protected String entryPath;
-    protected String host;
-    protected int port;
-    protected String testURL;
-    protected String databaseName;
-    protected String createDatabaseCommand;
-    protected String extensionsList;
-
     public PostgresProvider() {
         super(PostgresGlobalState.class, PostgresOptions.class);
     }
@@ -293,7 +282,7 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         PostgresForeignKeySetupGenerator.setup(globalState);
         prepareTables(globalState);
 
-        extensionsList = globalState.getDbmsSpecificOptions().extensions;
+        String extensionsList = globalState.getDbmsSpecificOptions().extensions;
         if (!extensionsList.isEmpty()) {
             String[] extensionNames = extensionsList.split(",");
 
@@ -314,19 +303,13 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         PostgresOptions opts = globalState.getDbmsSpecificOptions();
         opts.validate();
 
-        databaseName = globalState.getDatabaseName();
+        String databaseName = globalState.getDatabaseName();
         try {
             String entryDatabaseName = "postgres";
             ConnectionInfo connectionInfo = resolveConnectionInfo(globalState.getOptions(), opts, "postgres");
-            entryURL = connectionInfo.url;
-            entryPath = connectionInfo.path;
-            testURL = connectionInfo.url;
-            username = connectionInfo.username;
-            password = connectionInfo.password;
-            host = connectionInfo.host;
-            port = connectionInfo.port;
 
-            Connection con = DriverManager.getConnection("jdbc:" + entryURL, username, password);
+            Connection con = DriverManager.getConnection("jdbc:" + connectionInfo.url, connectionInfo.username,
+                    connectionInfo.password);
             globalState.getState().logStatement(String.format("\\c %s;", entryDatabaseName));
             try (Statement s = con.createStatement()) {
                 s.execute("SET lc_messages TO 'C'");
@@ -358,7 +341,7 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
             }
 
             // Create database section
-            createDatabaseCommand = getCreateDatabaseCommand(globalState);
+            String createDatabaseCommand = getCreateDatabaseCommand(databaseName);
             globalState.getState().logStatement(createDatabaseCommand + ";");
             try (Statement s = con.createStatement()) {
                 s.execute(createDatabaseCommand);
@@ -376,11 +359,6 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
             throws SQLException {
         try {
             ConnectionInfo connectionInfo = resolveConnectionInfo(options, postgresOptions, databaseName);
-            username = connectionInfo.username;
-            password = connectionInfo.password;
-            host = connectionInfo.host;
-            port = connectionInfo.port;
-            testURL = connectionInfo.url;
             Connection con = DriverManager.getConnection("jdbc:" + connectionInfo.url, connectionInfo.username,
                     connectionInfo.password);
             try (Statement s = con.createStatement()) {
@@ -616,7 +594,7 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         return String.format("tb%d_%d", workerId, sequence);
     }
 
-    private String getCreateDatabaseCommand(PostgresGlobalState state) {
+    private String getCreateDatabaseCommand(String databaseName) {
         return "CREATE DATABASE " + databaseName;
     }
 
@@ -656,25 +634,18 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         }
         URI dbUri = new URI(uri.getScheme(), null, resolvedHost, resolvedPort, "/" + targetDatabase, uri.getQuery(),
                 uri.getFragment());
-        return new ConnectionInfo(resolvedUsername, resolvedPassword, resolvedHost, resolvedPort, dbUri.toString(),
-                dbUri.getPath());
+        return new ConnectionInfo(resolvedUsername, resolvedPassword, dbUri.toString());
     }
 
     private static final class ConnectionInfo {
         private final String username;
         private final String password;
-        private final String host;
-        private final int port;
         private final String url;
-        private final String path;
 
-        private ConnectionInfo(String username, String password, String host, int port, String url, String path) {
+        private ConnectionInfo(String username, String password, String url) {
             this.username = username;
             this.password = password;
-            this.host = host;
-            this.port = port;
             this.url = url;
-            this.path = path;
         }
     }
 
