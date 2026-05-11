@@ -1,5 +1,7 @@
 package sqlancer.postgres;
 
+import java.io.File;
+import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,6 +49,7 @@ public final class PostgresBombard {
             provider.bootstrapBombardDatabase(bootstrapState);
         } finally {
             closeQuietly(bootstrapState);
+            deleteBombardCurrentLog(bootstrapState, databaseName + "-bootstrap");
         }
 
         int workerCount = Math.max(1, postgresOptions.getBombardWorkers());
@@ -71,7 +74,7 @@ public final class PostgresBombard {
         long refreshCounter = 0;
         try {
             if (!connect(state)) {
-                return;
+                throw new AssertionError("could not connect to PostgreSQL bombard database " + databaseName);
             }
             while (!Thread.currentThread().isInterrupted() && remainingQueries.getAndDecrement() > 0) {
                 try {
@@ -155,6 +158,27 @@ public final class PostgresBombard {
             // ignore
         } finally {
             state.setConnection(null);
+        }
+    }
+
+    private void deleteBombardCurrentLog(PostgresGlobalState state, String loggerName) {
+        if (!options.logEachSelect()) {
+            return;
+        }
+        if (state.getLogger() != null && state.getLogger().currentFileWriter != null) {
+            try {
+                state.getLogger().currentFileWriter.close();
+                state.getLogger().currentFileWriter = null;
+            } catch (IOException ignored) {
+                // best-effort cleanup; bombard mode intentionally does not keep SQL logs
+            }
+        }
+        File base = options.getLogDir() != null ? new File(options.getLogDir()) : Main.LOG_DIRECTORY;
+        File dbmsDir = new File(base, provider.getDBMSName());
+        File dir = runDirectoryName != null ? new File(dbmsDir, runDirectoryName) : dbmsDir;
+        File curLog = new File(dir, loggerName + "-cur.log");
+        if (curLog.exists() && !curLog.delete()) {
+            curLog.deleteOnExit();
         }
     }
 

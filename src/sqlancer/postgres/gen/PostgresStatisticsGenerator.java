@@ -1,6 +1,10 @@
 package sqlancer.postgres.gen;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import sqlancer.IgnoreMeException;
@@ -13,6 +17,10 @@ import sqlancer.postgres.PostgresSchema.PostgresStatisticsObject;
 import sqlancer.postgres.PostgresSchema.PostgresTable;
 
 public final class PostgresStatisticsGenerator {
+
+    private static final String STATISTICS_NAME_PREFIX = "sqlancer_s_"
+            + Long.toUnsignedString(System.nanoTime(), Character.MAX_RADIX) + "_";
+    private static final AtomicLong UNIQUE_STATISTICS_COUNTER = new AtomicLong();
 
     private PostgresStatisticsGenerator() {
     }
@@ -28,7 +36,7 @@ public final class PostgresStatisticsGenerator {
             throw new IgnoreMeException();
         }
         sb.append(" ");
-        sb.append(getNewStatisticsName(randomTable));
+        sb.append(getNewStatisticsName(globalState));
         if (Randomly.getBoolean()) {
             sb.append(" (");
             List<String> statsSubset;
@@ -43,8 +51,8 @@ public final class PostgresStatisticsGenerator {
         sb.append(randomColumns.stream().map(c -> c.getName()).collect(Collectors.joining(", ")));
         sb.append(" FROM ");
         sb.append(randomTable.getName());
-        return new SQLQueryAdapter(sb.toString(), ExpectedErrors.from("cannot have more than 8 columns in statistics"),
-                true);
+        return new SQLQueryAdapter(sb.toString(),
+                ExpectedErrors.from("cannot have more than 8 columns in statistics", "already exists"), true);
     }
 
     public static SQLQueryAdapter remove(PostgresGlobalState globalState) {
@@ -72,15 +80,31 @@ public final class PostgresStatisticsGenerator {
         return new SQLQueryAdapter(sb.toString(), true);
     }
 
-    private static String getNewStatisticsName(PostgresTable randomTable) {
-        List<PostgresStatisticsObject> statistics = randomTable.getStatistics();
-        int i = 0;
+    private static String getNewStatisticsName(PostgresGlobalState globalState) {
         while (true) {
-            String candidateName = "s" + i;
-            if (!statistics.stream().anyMatch(stat -> stat.getName().contentEquals(candidateName))) {
+            String candidateName = STATISTICS_NAME_PREFIX + UNIQUE_STATISTICS_COUNTER.getAndIncrement();
+            if (!statisticsNameExistsInSchema(globalState, candidateName)
+                    && !statisticsNameExistsInDatabase(globalState, candidateName)) {
                 return candidateName;
             }
-            i++;
+        }
+    }
+
+    private static boolean statisticsNameExistsInSchema(PostgresGlobalState globalState, String candidateName) {
+        return globalState.getSchema().getDatabaseTables().stream().flatMap(t -> t.getStatistics().stream())
+                .anyMatch(stat -> stat.getName().contentEquals(candidateName));
+    }
+
+    private static boolean statisticsNameExistsInDatabase(PostgresGlobalState globalState, String candidateName) {
+        String escapedName = candidateName.replace("'", "''");
+        String query = "SELECT 1 FROM pg_statistic_ext stx "
+                + "JOIN pg_namespace n ON n.oid = stx.stxnamespace "
+                + "WHERE stx.stxname = '" + escapedName + "' "
+                + "AND (n.nspname = 'public' OR n.nspname LIKE 'pg_temp_%') LIMIT 1";
+        try (Statement s = globalState.getConnection().createStatement(); ResultSet rs = s.executeQuery(query)) {
+            return rs.next();
+        } catch (SQLException ignored) {
+            return false;
         }
     }
 

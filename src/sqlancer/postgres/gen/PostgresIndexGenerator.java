@@ -2,29 +2,24 @@ package sqlancer.postgres.gen;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
+import sqlancer.IgnoreMeException;
 import sqlancer.Randomly;
 import sqlancer.common.DBMSCommon;
 import sqlancer.common.query.ExpectedErrors;
 import sqlancer.common.query.SQLQueryAdapter;
-import sqlancer.postgres.PostgresCompoundDataType;
 import sqlancer.postgres.PostgresGlobalState;
 import sqlancer.postgres.PostgresSchema.PostgresColumn;
 import sqlancer.postgres.PostgresSchema.PostgresDataType;
-import sqlancer.postgres.PostgresSchema.PostgresIndex;
 import sqlancer.postgres.PostgresSchema.PostgresTable;
 import sqlancer.postgres.PostgresVisitor;
-import sqlancer.postgres.ast.PostgresCastOperation;
-import sqlancer.postgres.ast.PostgresColumnReference;
 import sqlancer.postgres.ast.PostgresExpression;
-import sqlancer.postgres.ast.PostgresPostfixOperation;
-import sqlancer.postgres.ast.PostgresPostfixOperation.PostfixOperator;
-import sqlancer.postgres.ast.PostgresPostfixText;
-import sqlancer.postgres.ast.PostgresPrefixOperation;
-import sqlancer.postgres.ast.PostgresPrefixOperation.PrefixOperator;
 
 public final class PostgresIndexGenerator {
+
+    private static final AtomicLong UNIQUE_INDEX_COUNTER = new AtomicLong();
 
     private PostgresIndexGenerator() {
     }
@@ -99,7 +94,7 @@ public final class PostgresIndexGenerator {
         PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
         List<PostgresColumn> columns = getOrderedColumns(randomTable, Math.min(randomTable.getColumns().size(),
                 Math.max(1, Randomly.smallNumber() + 1)), false, false);
-        String constraintName = getNewIndexName(randomTable);
+        String constraintName = getNewIndexName(globalState);
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
         sb.append(randomTable.getName());
@@ -108,16 +103,21 @@ public final class PostgresIndexGenerator {
         sb.append(" PRIMARY KEY(");
         sb.append(columns.stream().map(PostgresColumn::getName).collect(Collectors.joining(", ")));
         sb.append(")");
+        appendOptionalConstraintTiming(sb);
         addPrimaryKeyErrors(errors);
-        return new SQLQueryAdapter(sb.toString(), errors);
+        return new SQLQueryAdapter(sb.toString(), errors, true);
     }
 
     private static SQLQueryAdapter generateUniqueIndex(PostgresGlobalState globalState) {
         ExpectedErrors errors = new ExpectedErrors();
         PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
-        int nrColumns = Math.min(randomTable.getColumns().size(), Math.max(1, Randomly.smallNumber() + 1));
-        List<IndexElement> elements = createPlainIndexElements(globalState, randomTable, nrColumns, IndexType.BTREE,
-                errors);
+        List<IndexElement> elements;
+        if (Randomly.getBooleanWithRatherLowProbability()) {
+            elements = List.of(createExpressionIndexElement(globalState, randomTable, IndexType.BTREE, errors));
+        } else {
+            int nrColumns = Math.min(randomTable.getColumns().size(), Math.max(1, Randomly.smallNumber() + 1));
+            elements = createPlainIndexElements(globalState, randomTable, nrColumns, IndexType.BTREE, errors);
+        }
         addSharedIndexErrors(errors);
         addUniqueErrors(errors);
         return generateCreateIndex(randomTable, true, IndexType.BTREE, elements, globalState, errors);
@@ -125,7 +125,8 @@ public final class PostgresIndexGenerator {
 
     private static SQLQueryAdapter generateCompositeIndex(PostgresGlobalState globalState) {
         ExpectedErrors errors = new ExpectedErrors();
-        PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
+        PostgresTable randomTable = globalState.getSchema()
+                .getRandomTableOrBailout(t -> !t.isView() && t.getColumns().size() >= 2);
         IndexType method = Randomly.fromOptions(IndexType.BTREE, IndexType.GIST, IndexType.GIN, IndexType.BRIN);
         int nrColumns = Math.min(randomTable.getColumns().size(), Math.max(2, Randomly.smallNumber() + 2));
         List<IndexElement> elements = createPlainIndexElements(globalState, randomTable, nrColumns, method, errors);
@@ -135,20 +136,20 @@ public final class PostgresIndexGenerator {
 
     private static SQLQueryAdapter generatePrefixExpressionIndex(PostgresGlobalState globalState) {
         ExpectedErrors errors = new ExpectedErrors();
-        PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
-        IndexType method = chooseExpressionIndexType();
-        List<IndexElement> elements = createExpressionPositionIndexElements(globalState, randomTable,
-                PostgresIndexModel.PREFIX_EXPR, method, errors, true);
+        PostgresTable randomTable = getRandomTableWithTextColumn(globalState);
+        IndexType method = IndexType.BTREE;
+        List<IndexElement> elements = createSubstringPositionIndexElements(globalState, randomTable, method, errors,
+                true, true);
         addSharedIndexErrors(errors);
         return generateCreateIndex(randomTable, false, method, elements, globalState, errors);
     }
 
     private static SQLQueryAdapter generateSuffixExpressionIndex(PostgresGlobalState globalState) {
         ExpectedErrors errors = new ExpectedErrors();
-        PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
-        IndexType method = chooseExpressionIndexType();
-        List<IndexElement> elements = createExpressionPositionIndexElements(globalState, randomTable,
-                PostgresIndexModel.SUFFIX_EXPR, method, errors, false);
+        PostgresTable randomTable = getRandomTableWithTextColumn(globalState);
+        IndexType method = IndexType.BTREE;
+        List<IndexElement> elements = createSubstringPositionIndexElements(globalState, randomTable, method, errors,
+                false, false);
         addSharedIndexErrors(errors);
         return generateCreateIndex(randomTable, false, method, elements, globalState, errors);
     }
@@ -156,13 +157,11 @@ public final class PostgresIndexGenerator {
     private static SQLQueryAdapter generateExpressionIndex(PostgresGlobalState globalState) {
         ExpectedErrors errors = new ExpectedErrors();
         PostgresTable randomTable = globalState.getSchema().getRandomTable(t -> !t.isView());
-        IndexType method = chooseExpressionIndexType();
         int nrElements = Math.min(randomTable.getColumns().size(), Math.max(1, Randomly.smallNumber() + 1));
-        List<PostgresColumn> columns = getOrderedColumns(randomTable, nrElements, false, false);
+        IndexType method = chooseExpressionIndexType(nrElements);
         List<IndexElement> elements = new ArrayList<>();
-        for (PostgresColumn column : columns) {
-            elements.add(createExpressionIndexElement(globalState, randomTable, column, PostgresIndexModel.EXPRESSION,
-                    method, errors));
+        for (int i = 0; i < nrElements; i++) {
+            elements.add(createExpressionIndexElement(globalState, randomTable, method, errors));
         }
         addSharedIndexErrors(errors);
         return generateCreateIndex(randomTable, false, method, elements, globalState, errors);
@@ -176,7 +175,10 @@ public final class PostgresIndexGenerator {
             sb.append(" UNIQUE");
         }
         sb.append(" INDEX ");
-        sb.append(getNewIndexName(randomTable));
+        if (Randomly.getBooleanWithRatherLowProbability()) {
+            sb.append("IF NOT EXISTS ");
+        }
+        sb.append(getNewIndexName(globalState));
         sb.append(" ON ");
         if (Randomly.getBoolean()) {
             sb.append("ONLY ");
@@ -195,13 +197,38 @@ public final class PostgresIndexGenerator {
             sb.append(columns.stream().map(PostgresColumn::getName).collect(Collectors.joining(", ")));
             sb.append(")");
         }
+        appendOptionalUniqueNullTreatment(sb, unique, errors);
+        appendIndexStorageParameters(globalState, sb, method);
         if (globalState != null && Randomly.getBoolean()) {
             sb.append(" WHERE ");
             PostgresExpression expr = new PostgresExpressionGenerator(globalState).setColumns(randomTable.getColumns())
                     .setGlobalState(globalState).generateExpression(PostgresDataType.BOOLEAN);
             sb.append(PostgresVisitor.asString(expr));
         }
-        return new SQLQueryAdapter(sb.toString(), errors);
+        return new SQLQueryAdapter(sb.toString(), errors, true);
+    }
+
+    private static void appendOptionalConstraintTiming(StringBuilder sb) {
+        if (Randomly.getBooleanWithRatherLowProbability()) {
+            boolean deferrable = Randomly.getBoolean();
+            sb.append(deferrable ? " DEFERRABLE" : " NOT DEFERRABLE");
+            if (deferrable && Randomly.getBoolean()) {
+                sb.append(" INITIALLY ");
+                sb.append(Randomly.fromOptions("IMMEDIATE", "DEFERRED"));
+            }
+        }
+    }
+
+    private static void appendOptionalUniqueNullTreatment(StringBuilder sb, boolean unique, ExpectedErrors errors) {
+        if (!unique || !Randomly.getBooleanWithRatherLowProbability()) {
+            return;
+        }
+        sb.append(" NULLS ");
+        if (Randomly.getBoolean()) {
+            sb.append("NOT ");
+        }
+        sb.append("DISTINCT");
+        errors.add("syntax error at or near \"NULLS\"");
     }
 
     private static List<IndexElement> createPlainIndexElements(PostgresGlobalState globalState,
@@ -214,25 +241,32 @@ public final class PostgresIndexGenerator {
         return elements;
     }
 
-    private static List<IndexElement> createExpressionPositionIndexElements(PostgresGlobalState globalState,
-            PostgresTable randomTable, PostgresIndexModel model, IndexType method, ExpectedErrors errors,
-            boolean expressionFirst) {
-        int nrColumns = Math.min(randomTable.getColumns().size(), Math.max(1, Randomly.smallNumber() + 1));
+    private static List<IndexElement> createSubstringPositionIndexElements(PostgresGlobalState globalState,
+            PostgresTable randomTable, IndexType method, ExpectedErrors errors, boolean expressionFirst,
+            boolean usePrefix) {
+        int minElements = randomTable.getColumns().size() >= 2 ? 2 : 1;
+        int nrColumns = Math.min(randomTable.getColumns().size(), Math.max(minElements, Randomly.smallNumber() + 2));
         List<PostgresColumn> columns = getOrderedColumns(randomTable, nrColumns, false, false);
-        PostgresColumn expressionColumn = Randomly.fromList(columns);
+        PostgresColumn substringColumn = getRandomTextColumn(randomTable.getColumns());
+        if (!columns.contains(substringColumn)) {
+            if (columns.size() >= nrColumns) {
+                columns.remove(Randomly.fromList(columns));
+            }
+            columns.add(substringColumn);
+        }
         List<IndexElement> elements = new ArrayList<>();
-        IndexElement expression = createExpressionIndexElement(globalState, randomTable, expressionColumn, model, method,
-                errors);
+        IndexElement substringElement = createSubstringIndexElement(globalState, substringColumn, method, errors,
+                usePrefix);
         if (expressionFirst) {
-            elements.add(expression);
+            elements.add(substringElement);
         }
         for (PostgresColumn column : columns) {
-            if (column != expressionColumn) {
+            if (column != substringColumn) {
                 elements.add(createColumnIndexElement(globalState, column, method, errors));
             }
         }
         if (!expressionFirst) {
-            elements.add(expression);
+            elements.add(substringElement);
         }
         return elements;
     }
@@ -241,17 +275,34 @@ public final class PostgresIndexGenerator {
             IndexType method, ExpectedErrors errors) {
         StringBuilder sb = new StringBuilder();
         sb.append(column.getName());
+        appendOptionalCollation(globalState, sb, column);
         appendIndexElementOptions(globalState, sb, method, errors);
         return new IndexElement(sb.toString());
     }
 
     private static IndexElement createExpressionIndexElement(PostgresGlobalState globalState, PostgresTable randomTable,
-            PostgresColumn column, PostgresIndexModel model, IndexType method, ExpectedErrors errors) {
+            IndexType method, ExpectedErrors errors) {
         StringBuilder sb = new StringBuilder();
         sb.append("(");
-        sb.append(getExpressionSql(globalState, randomTable, column, model));
+        sb.append(PostgresVisitor.asString(new PostgresExpressionGenerator(globalState)
+                .setColumns(randomTable.getColumns()).generateExpression(0)));
         sb.append(")");
         appendIndexElementOptions(globalState, sb, method, errors);
+        return new IndexElement(sb.toString());
+    }
+
+    private static IndexElement createSubstringIndexElement(PostgresGlobalState globalState, PostgresColumn column,
+            IndexType method, ExpectedErrors errors, boolean usePrefix) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+        sb.append(usePrefix ? "left(" : "right(");
+        sb.append(column.getName());
+        sb.append(", ");
+        sb.append(globalState.getRandomly().getInteger(1, 101));
+        sb.append(")");
+        appendOptionalCollation(globalState, sb, column);
+        sb.append(")");
+        appendIndexElementOrderingOptions(sb, method);
         return new IndexElement(sb.toString());
     }
 
@@ -264,6 +315,12 @@ public final class PostgresIndexGenerator {
             errors.add("does not exist for access method");
         }
         if (method == IndexType.BTREE || method == IndexType.GIST || method == IndexType.BRIN) {
+            appendIndexElementOrderingOptions(sb, method);
+        }
+    }
+
+    private static void appendIndexElementOrderingOptions(StringBuilder sb, IndexType method) {
+        if (method == IndexType.BTREE || method == IndexType.GIST || method == IndexType.BRIN) {
             if (Randomly.getBoolean()) {
                 sb.append(" ");
                 sb.append(Randomly.fromOptions("ASC", "DESC"));
@@ -275,42 +332,75 @@ public final class PostgresIndexGenerator {
         }
     }
 
-    private static String getExpressionSql(PostgresGlobalState globalState, PostgresTable randomTable,
-            PostgresColumn column, PostgresIndexModel model) {
-        switch (model) {
-        case PREFIX_EXPR:
-            return PostgresVisitor.asString(createPrefixExpression(column));
-        case SUFFIX_EXPR:
-            return PostgresVisitor.asString(createSuffixExpression(column));
-        case EXPRESSION:
-            return PostgresVisitor.asString(
-                    PostgresExpressionGenerator.generateExpression(globalState, randomTable.getColumns()));
-        default:
-            return PostgresVisitor.asString(
-                    PostgresExpressionGenerator.generateExpression(globalState, randomTable.getColumns()));
+    private static void appendOptionalCollation(PostgresGlobalState globalState, StringBuilder sb,
+            PostgresColumn column) {
+        if (isTextType(column) && !globalState.getCollates().isEmpty()
+                && Randomly.getBooleanWithRatherLowProbability()) {
+            sb.append(" COLLATE ");
+            appendQuotedIdentifier(sb, globalState.getRandomCollate());
         }
     }
 
-    private static PostgresExpression createPrefixExpression(PostgresColumn column) {
-        PostgresExpression columnReference = new PostgresColumnReference(column);
-        switch (column.getType()) {
-        case BOOLEAN:
-            return new PostgresPrefixOperation(columnReference, PrefixOperator.NOT);
-        case INT:
-            return new PostgresPrefixOperation(columnReference,
-                    Randomly.fromOptions(PrefixOperator.UNARY_PLUS, PrefixOperator.UNARY_MINUS));
-        default:
-            return new PostgresCastOperation(columnReference, PostgresCompoundDataType.create(PostgresDataType.TEXT));
+    private static void appendIndexStorageParameters(PostgresGlobalState globalState, StringBuilder sb,
+            IndexType method) {
+        if (!Randomly.getBooleanWithRatherLowProbability()) {
+            return;
         }
+        sb.append(" WITH (");
+        switch (method) {
+        case BRIN:
+            if (Randomly.getBoolean()) {
+                sb.append("pages_per_range = ");
+                sb.append(globalState.getRandomly().getInteger(1, 257));
+            } else {
+                sb.append("autosummarize = ");
+                sb.append(Randomly.fromOptions("on", "off"));
+            }
+            break;
+        case BTREE:
+            if (Randomly.getBooleanWithRatherLowProbability()) {
+                sb.append("deduplicate_items = ");
+                sb.append(Randomly.fromOptions("on", "off"));
+            } else {
+                appendFillfactor(globalState, sb);
+            }
+            break;
+        case HASH:
+        case SPGIST:
+            appendFillfactor(globalState, sb);
+            break;
+        case GIST:
+            if (Randomly.getBoolean()) {
+                appendFillfactor(globalState, sb);
+            } else {
+                sb.append("buffering = ");
+                sb.append(Randomly.fromOptions("on", "off", "auto"));
+            }
+            break;
+        case GIN:
+            if (Randomly.getBoolean()) {
+                sb.append("fastupdate = ");
+                sb.append(Randomly.fromOptions("on", "off"));
+            } else {
+                sb.append("gin_pending_list_limit = ");
+                sb.append(globalState.getRandomly().getInteger(64, 4097));
+            }
+            break;
+        default:
+            throw new AssertionError(method);
+        }
+        sb.append(")");
     }
 
-    private static PostgresExpression createSuffixExpression(PostgresColumn column) {
-        PostgresExpression columnReference = new PostgresColumnReference(column);
-        if (Randomly.getBoolean()) {
-            return new PostgresPostfixOperation(columnReference,
-                    Randomly.fromOptions(PostfixOperator.IS_NULL, PostfixOperator.IS_NOT_NULL));
-        }
-        return new PostgresPostfixText(columnReference, "::text", null, PostgresDataType.TEXT);
+    private static void appendFillfactor(PostgresGlobalState globalState, StringBuilder sb) {
+        sb.append("fillfactor = ");
+        sb.append(globalState.getRandomly().getInteger(10, 101));
+    }
+
+    private static void appendQuotedIdentifier(StringBuilder sb, String identifier) {
+        sb.append('"');
+        sb.append(identifier.replace("\"", "\"\""));
+        sb.append('"');
     }
 
     private static List<PostgresColumn> getOrderedColumns(PostgresTable randomTable, int targetCount,
@@ -329,12 +419,38 @@ public final class PostgresIndexGenerator {
         return columns;
     }
 
-    private static IndexType chooseExpressionIndexType() {
+    private static IndexType chooseExpressionIndexType(int nrElements) {
+        if (nrElements == 1) {
+            return Randomly.fromOptions(IndexType.BTREE, IndexType.HASH, IndexType.GIST, IndexType.SPGIST);
+        }
         return Randomly.fromOptions(IndexType.BTREE, IndexType.GIST, IndexType.SPGIST);
     }
 
+    private static PostgresTable getRandomTableWithTextColumn(PostgresGlobalState globalState) {
+        PostgresTable table = globalState.getSchema()
+                .getRandomTableOrBailout(t -> !t.isView() && t.getColumns().stream().anyMatch(c -> isTextType(c)));
+        if (table.getColumns().stream().noneMatch(c -> isTextType(c))) {
+            throw new IgnoreMeException();
+        }
+        return table;
+    }
+
+    private static PostgresColumn getRandomTextColumn(List<PostgresColumn> columns) {
+        List<PostgresColumn> textColumns = columns.stream().filter(PostgresIndexGenerator::isTextType)
+                .collect(Collectors.toList());
+        if (textColumns.isEmpty()) {
+            throw new IgnoreMeException();
+        }
+        return Randomly.fromList(textColumns);
+    }
+
+    private static boolean isTextType(PostgresColumn column) {
+        return column.getType() == PostgresDataType.TEXT || column.getType() == PostgresDataType.VARCHAR
+                || column.getType() == PostgresDataType.CHAR;
+    }
+
     private static boolean canUseInclude(IndexType method) {
-        return method != IndexType.HASH;
+        return method == IndexType.BTREE || method == IndexType.GIST || method == IndexType.SPGIST;
     }
 
     private static void addSharedIndexErrors(ExpectedErrors errors) {
@@ -379,12 +495,11 @@ public final class PostgresIndexGenerator {
         errors.add("contains null values");
     }
 
-    private static String getNewIndexName(PostgresTable randomTable) {
-        List<PostgresIndex> indexes = randomTable.getIndexes();
-        int indexI = 0;
+    private static String getNewIndexName(PostgresGlobalState globalState) {
         while (true) {
-            String indexName = DBMSCommon.createIndexName(indexI++);
-            if (indexes.stream().noneMatch(i -> i.getIndexName().equals(indexName))) {
+            String indexName = DBMSCommon.createIndexName((int) UNIQUE_INDEX_COUNTER.getAndIncrement());
+            if (globalState.getSchema().getDatabaseTables().stream().flatMap(t -> t.getIndexes().stream())
+                    .noneMatch(i -> i.getIndexName().equals(indexName))) {
                 return indexName;
             }
         }

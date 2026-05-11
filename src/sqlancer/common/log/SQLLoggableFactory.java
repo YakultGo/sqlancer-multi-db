@@ -35,6 +35,11 @@ public class SQLLoggableFactory extends LoggableFactory {
     }
 
     @Override
+    protected Loggable infoToLoggable(String time, String databaseName, String databaseVersion, long seedValue) {
+        return infoToLoggable(time, databaseName, databaseVersion, null, seedValue);
+    }
+
+    @Override
     protected Loggable infoToLoggable(String time, String databaseName, String databaseVersion,
             String databaseConnectionInfo, long seedValue) {
         StringBuilder sb = new StringBuilder();

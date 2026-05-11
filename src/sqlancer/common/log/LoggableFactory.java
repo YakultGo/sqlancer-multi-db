@@ -34,8 +34,13 @@ public abstract class LoggableFactory {
         return infoToLoggable(dateFormat.format(date), databaseName, databaseVersion, databaseConnectionInfo, seedValue);
     }
 
+    protected Loggable infoToLoggable(String time, String databaseName, String databaseVersion,
+            String databaseConnectionInfo, long seedValue) {
+        return infoToLoggable(time, databaseName, databaseVersion, seedValue);
+    }
+
     protected abstract Loggable infoToLoggable(String time, String databaseName, String databaseVersion,
-            String databaseConnectionInfo, long seedValue);
+            long seedValue);
 
     public abstract Loggable convertStacktraceToLoggable(Throwable throwable);
 

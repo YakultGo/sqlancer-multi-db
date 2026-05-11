@@ -71,10 +71,22 @@ import sqlancer.postgres.gen.PostgresViewGenerator;
 @AutoService(DatabaseProvider.class)
 public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, PostgresOptions> {
 
-    private static final int BOMBARD_MAX_TABLES = 12;
+    private static final int BOMBARD_MAX_TABLES = 6;
+    private static final int BOMBARD_RANDOM_SELECT_WEIGHT = 8;
     private static final Object ENUM_TYPES_LOCK = new Object();
     private static final List<String> enumTypeNames = new ArrayList<>();
     private static final Map<String, List<String>> enumTypeLabels = new HashMap<>();
+
+    protected String entryURL;
+    protected String username;
+    protected String password;
+    protected String entryPath;
+    protected String host;
+    protected int port;
+    protected String testURL;
+    protected String databaseName;
+    protected String createDatabaseCommand;
+    protected String extensionsList;
 
     public PostgresProvider() {
         super(PostgresGlobalState.class, PostgresOptions.class);
@@ -162,41 +174,43 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         int nrPerformed;
         switch (a) {
         case CREATE_INDEX:
-            nrPerformed = r.getInteger(1, 5);
+            nrPerformed = r.getInteger(3, 9);
             break;
         case ALTER_INDEX:
-            nrPerformed = hasAnyIndex(globalState) ? r.getInteger(0, 3) : 0;
+            nrPerformed = hasAnyIndex(globalState) ? r.getInteger(1, 5) : 0;
             break;
         case CLUSTER:
             // CLUSTER can be very expensive (reorders entire table)
-            nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
+            nrPerformed = Randomly.getBooleanWithSmallProbability() ? 1 : 0;
             break;
         case CREATE_STATISTICS:
             // CREATE STATISTICS can be expensive for large tables
-            nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
+            nrPerformed = Randomly.getBooleanWithRatherLowProbability() ? r.getInteger(1, 3) : 0;
             break;
         case CREATE_TYPE:
         case CREATE_FUNCTION:
         case CREATE_RULE:
-            nrPerformed = r.getInteger(0, 2);
+            nrPerformed = r.getInteger(1, 4);
             break;
         case ALTER_STATISTICS:
-            nrPerformed = r.getInteger(0, 3);
+            nrPerformed = r.getInteger(0, 4);
+            break;
+        case DROP_INDEX:
+            nrPerformed = r.getInteger(1, 6);
             break;
         case DISCARD:
-        case DROP_INDEX:
-            nrPerformed = r.getInteger(0, 6);
+            nrPerformed = r.getInteger(0, 2);
             break;
         case DROP_TABLE:
         case DROP_VIEW:
         case DROP_SEQUENCE:
-            nrPerformed = Randomly.getBooleanWithRatherLowProbability() ? r.getInteger(0, 1) : 0;
+            nrPerformed = Randomly.getBooleanWithRatherLowProbability() ? 1 : 0;
             break;
         case CREATE_PARTITION:
             nrPerformed = PostgresPartitionGenerator.hasCreatePartitionCandidate(globalState) ? r.getInteger(1, 5) : 0;
             break;
         case ATTACH_PARTITION:
-            nrPerformed = PostgresPartitionGenerator.hasAttachPartitionCandidate(globalState) ? r.getInteger(0, 3) : 0;
+            nrPerformed = PostgresPartitionGenerator.hasAttachPartitionCandidate(globalState) ? r.getInteger(1, 4) : 0;
             break;
         case DETACH_PARTITION:
         case DROP_PARTITION:
@@ -206,61 +220,65 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
             nrPerformed = r.getInteger(0, 0);
             break;
         case ALTER_TABLE:
-            nrPerformed = r.getInteger(3, 12);
+            nrPerformed = r.getInteger(8, 21);
             break;
         case REINDEX:
             // REINDEX can be expensive (rebuilds entire index)
-            nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
+            nrPerformed = Randomly.getBooleanWithSmallProbability() ? 1 : 0;
             break;
         case RESET:
             nrPerformed = r.getInteger(0, 4);
             break;
-        case DELETE:
         case RESET_ROLE:
         case SET:
             nrPerformed = r.getInteger(1, 7);
             break;
+        case DELETE:
+            nrPerformed = r.getInteger(2, 9);
+            break;
         case MERGE:
-            nrPerformed = r.getInteger(0, 2);
+            nrPerformed = r.getInteger(1, 6);
             break;
         case COPY:
-            nrPerformed = Randomly.getBooleanWithRatherLowProbability() ? r.getInteger(0, 1) : 0;
+            nrPerformed = Randomly.getBooleanWithRatherLowProbability() ? 1 : 0;
             break;
         case ANALYZE:
             // ANALYZE collects statistics and can be slow
-            nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
+            nrPerformed = Randomly.getBooleanWithRatherLowProbability() ? r.getInteger(1, 3) : 0;
             break;
         case VACUUM:
             // VACUUM (especially FREEZE) can take 18+ seconds
-            nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
+            nrPerformed = Randomly.getBooleanWithSmallProbability() ? 1 : 0;
             break;
         case SET_CONSTRAINTS:
         case COMMENT_ON:
         case NOTIFY:
         case LISTEN:
         case UNLISTEN:
-        case CREATE_SEQUENCE:
-        case ALTER_SEQUENCE:
         case DROP_STATISTICS:
             nrPerformed = r.getInteger(0, 3);
             break;
+        case CREATE_SEQUENCE:
+        case ALTER_SEQUENCE:
+            nrPerformed = r.getInteger(1, 5);
+            break;
         case TRUNCATE:
             // TRUNCATE clears table data, may affect test oracle
-            nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
+            nrPerformed = Randomly.getBooleanWithSmallProbability() ? 1 : 0;
             break;
         case CREATE_VIEW:
-            nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
+            nrPerformed = Randomly.getBooleanWithRatherLowProbability() ? 1 : 0;
             break;
         case CREATE_TABLESPACE:
             // CREATE TABLESPACE involves filesystem operations
-            nrPerformed = Randomly.getBooleanWithSmallProbability() ? r.getInteger(0, 1) : 0;
+            nrPerformed = Randomly.getBooleanWithSmallProbability() ? 1 : 0;
             break;
         case UPDATE:
-            nrPerformed = r.getInteger(3, 10);
+            nrPerformed = r.getInteger(6, 17);
             break;
         case INSERT:
-            nrPerformed = r.getInteger(Math.max(1, globalState.getDbmsSpecificOptions().getPgGenerateSqlNum() / 3),
-                    globalState.getDbmsSpecificOptions().getPgGenerateSqlNum());
+            int insertBudget = Math.max(3, globalState.getDbmsSpecificOptions().getPgGenerateSqlNum());
+            nrPerformed = r.getInteger(insertBudget, insertBudget * 3 + 1);
             break;
         default:
             throw new AssertionError(a);
@@ -517,21 +535,24 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
 
     public SQLQueryAdapter getQueryForBombard(PostgresGlobalState globalState, long workerId, long sequence)
             throws Exception {
-        int tableCount = globalState.getSchema().getDatabaseTables().size();
-        if (tableCount < BOMBARD_MAX_TABLES && shouldCreateBombardTable(tableCount)) {
+        BombardQueryKind queryKind = getWeightedBombardQueryKind(globalState);
+        switch (queryKind.kind) {
+        case CREATE_TABLE:
             return PostgresTableGenerator.generate(getBombardTableName(workerId, sequence), globalState.getSchema(),
                     globalState);
-        }
-        if (!globalState.getSchema().getDatabaseTables().isEmpty() && Randomly.getBoolean()) {
+        case RANDOM_SELECT:
             String query = PostgresVisitor
                     .asString(PostgresRandomQueryGenerator.createRandomQuery(Randomly.smallNumber() + 1, globalState))
                     + ";";
             return new SQLQueryAdapter(query);
+        case ACTION:
+            return queryKind.action.getQuery(globalState);
+        default:
+            throw new AssertionError(queryKind.kind);
         }
-        return getWeightedBombardAction(globalState).getQuery(globalState);
     }
 
-    static boolean isExcludedBombardAction(Action action) {
+    static int adjustBombardActionWeight(Action action, int weight) {
         switch (action) {
         case DISCARD:
         case CREATE_TABLESPACE:
@@ -547,40 +568,65 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
         case DROP_VIEW:
         case DROP_SEQUENCE:
         case COPY:
-            return true;
+            return weight > 0 ? 1 : 0;
         default:
-            return false;
+            return weight;
         }
     }
 
-    private boolean shouldCreateBombardTable(int tableCount) {
-        if (tableCount == 0) {
-            return true;
-        }
-        if (tableCount < 2) {
-            return Randomly.getBooleanWithSmallProbability();
-        }
-        return tableCount < BOMBARD_MAX_TABLES && Randomly.getBooleanWithRatherLowProbability();
+    private enum BombardQueryKindType {
+        CREATE_TABLE, RANDOM_SELECT, ACTION
     }
 
-    private Action getWeightedBombardAction(PostgresGlobalState globalState) {
-        List<Action> availableActions = new ArrayList<>();
+    private static final class BombardQueryKind {
+        private final BombardQueryKindType kind;
+        private final Action action;
+
+        private BombardQueryKind(BombardQueryKindType kind, Action action) {
+            this.kind = kind;
+            this.action = action;
+        }
+
+        private static BombardQueryKind createTable() {
+            return new BombardQueryKind(BombardQueryKindType.CREATE_TABLE, null);
+        }
+
+        private static BombardQueryKind randomSelect() {
+            return new BombardQueryKind(BombardQueryKindType.RANDOM_SELECT, null);
+        }
+
+        private static BombardQueryKind action(Action action) {
+            return new BombardQueryKind(BombardQueryKindType.ACTION, action);
+        }
+    }
+
+    private BombardQueryKind getWeightedBombardQueryKind(PostgresGlobalState globalState) {
+        List<BombardQueryKind> availableActions = new ArrayList<>();
         List<Integer> weights = new ArrayList<>();
         int totalWeight = 0;
+        int tableCount = globalState.getSchema().getDatabaseTables().size();
+        int createTableWeight = getBombardCreateTableWeight(tableCount);
+        if (createTableWeight > 0) {
+            availableActions.add(BombardQueryKind.createTable());
+            weights.add(createTableWeight);
+            totalWeight += createTableWeight;
+        }
+        if (tableCount > 0) {
+            availableActions.add(BombardQueryKind.randomSelect());
+            weights.add(BOMBARD_RANDOM_SELECT_WEIGHT);
+            totalWeight += BOMBARD_RANDOM_SELECT_WEIGHT;
+        }
         for (Action action : Action.values()) {
-            if (isExcludedBombardAction(action)) {
-                continue;
-            }
-            int weight = mapActions(globalState, action);
+            int weight = adjustBombardActionWeight(action, mapActions(globalState, action));
             if (weight <= 0) {
                 continue;
             }
-            availableActions.add(action);
+            availableActions.add(BombardQueryKind.action(action));
             weights.add(weight);
             totalWeight += weight;
         }
         if (availableActions.isEmpty()) {
-            throw new AssertionError("No PostgreSQL bombard actions available");
+            throw new AssertionError("No PostgreSQL bombard query kinds available");
         }
         int selection = globalState.getRandomly().getInteger(0, totalWeight);
         int current = 0;
@@ -591,6 +637,19 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
             }
         }
         return availableActions.get(availableActions.size() - 1);
+    }
+
+    private int getBombardCreateTableWeight(int tableCount) {
+        if (tableCount == 0) {
+            return 100;
+        }
+        if (tableCount < 2) {
+            return 4;
+        }
+        if (tableCount < BOMBARD_MAX_TABLES) {
+            return 1;
+        }
+        return 0;
     }
 
     static String getBombardTableName(long workerId, long sequence) {
