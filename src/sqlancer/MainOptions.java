@@ -140,7 +140,7 @@ public class MainOptions {
     private int constantCacheSize = 100; // NOPMD
 
     @Parameter(names = "--database-prefix", description = "The prefix used for each database created")
-    private String databasePrefix = "database"; // NOPMD
+    private String databasePrefix; // NOPMD
 
     @Parameter(names = "--serialize-reproduce-state", description = "Serialize the state to reproduce")
     private boolean serializeReproduceState = false; // NOPMD
@@ -340,6 +340,14 @@ public class MainOptions {
 
     public String getDatabasePrefix() {
         return databasePrefix;
+    }
+
+    public boolean hasDatabasePrefix() {
+        return databasePrefix != null;
+    }
+
+    public void setDatabasePrefix(String databasePrefix) {
+        this.databasePrefix = databasePrefix;
     }
 
     public boolean performConnectionTest() {

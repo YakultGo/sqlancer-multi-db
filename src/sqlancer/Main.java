@@ -568,7 +568,7 @@ public final class Main {
             return runDirectoryName;
         }
 
-        static String computeRunDirectoryName(DBMSSpecificOptions<?> command) {
+        static String computeOracleName(DBMSSpecificOptions<?> command) {
             String oracleName = "oracle";
             try {
                 List<?> oracles = command.getTestOracleFactory();
@@ -581,10 +581,27 @@ public final class Main {
                 }
             } catch (Exception ignored) {
             }
-            oracleName = oracleName.toLowerCase();
+            return oracleName.toLowerCase();
+        }
+
+        static String computeRunDirectoryName(DBMSSpecificOptions<?> command) {
+            String oracleName = computeOracleName(command);
             DateFormat fmt = new SimpleDateFormat("yyyy_MMdd_HHmm");
             String ts = fmt.format(new Date());
             return oracleName + "_" + ts;
+        }
+
+        static String computeDatabasePrefix(DBMSSpecificOptions<?> command) {
+            DateFormat fmt = new SimpleDateFormat("yyyyMMdd");
+            return computeOracleName(command) + "_" + fmt.format(new Date()) + "_" + randomLowercaseLetters(6);
+        }
+
+        private static String randomLowercaseLetters(int length) {
+            StringBuilder sb = new StringBuilder(length);
+            for (int i = 0; i < length; i++) {
+                sb.append((char) ('a' + Randomly.getNotCachedInteger(0, 26)));
+            }
+            return sb.toString();
         }
 
         public DatabaseProvider<G, O, C> getProvider() {
@@ -652,6 +669,9 @@ public final class Main {
 
         ExecutorService execService = Executors.newFixedThreadPool(options.getNumberConcurrentThreads());
         DBMSExecutorFactory<?, ?, ?> executorFactory = nameToProvider.get(jc.getParsedCommand());
+        if (!options.hasDatabasePrefix()) {
+            options.setDatabasePrefix(DBMSExecutorFactory.computeDatabasePrefix(executorFactory.getCommand()));
+        }
         boolean postgresBombardMode = executorFactory.getCommand() instanceof PostgresOptions
                 && ((PostgresOptions) executorFactory.getCommand()).isBombard();
 
