@@ -267,6 +267,7 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
         private final boolean isPartitioned;
         private final boolean isPartition;
         private final String partitionParent;
+        private final String partitionBound;
         private final PartitionStrategy partitionStrategy;
         private final List<String> partitionKeyColumns;
 
@@ -285,13 +286,14 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
                 TableType tableType, List<PostgresStatisticsObject> statistics, List<PostgresConstraint> constraints,
                 boolean isView, boolean isInsertable, boolean isPartitioned) {
             this(tableName, columns, indexes, tableType, statistics, constraints, isView, isInsertable, isPartitioned,
-                    false, null, PartitionStrategy.NONE, List.of());
+                    false, null, null, PartitionStrategy.NONE, List.of());
         }
 
         public PostgresTable(String tableName, List<PostgresColumn> columns, List<PostgresIndex> indexes,
                 TableType tableType, List<PostgresStatisticsObject> statistics, List<PostgresConstraint> constraints,
                 boolean isView, boolean isInsertable, boolean isPartitioned, boolean isPartition,
-                String partitionParent, PartitionStrategy partitionStrategy, List<String> partitionKeyColumns) {
+                String partitionParent, String partitionBound, PartitionStrategy partitionStrategy,
+                List<String> partitionKeyColumns) {
             super(tableName, columns, indexes, isView);
             this.statistics = statistics;
             this.constraints = constraints;
@@ -300,6 +302,7 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
             this.isPartitioned = isPartitioned;
             this.isPartition = isPartition;
             this.partitionParent = partitionParent;
+            this.partitionBound = partitionBound;
             this.partitionStrategy = partitionStrategy;
             this.partitionKeyColumns = partitionKeyColumns;
         }
@@ -330,6 +333,10 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
 
         public String getPartitionParent() {
             return partitionParent;
+        }
+
+        public String getPartitionBound() {
+            return partitionBound;
         }
 
         public PartitionStrategy getPartitionStrategy() {
@@ -445,7 +452,7 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
     public static PostgresSchema fromConnection(SQLConnection con, String databaseName) throws SQLException {
         try {
             List<PostgresTable> databaseTables = new ArrayList<>();
-            Map<String, String> partitionParents = getPartitionParents(con);
+            Map<String, PartitionParentInfo> partitionParents = getPartitionParents(con);
             Map<String, PartitionInfo> partitionedTables = getPartitionedTables(con);
             try (Statement s = con.createStatement()) {
                 try (ResultSet rs = s.executeQuery(
@@ -462,7 +469,9 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
                         boolean isInsertable = rs.getBoolean("is_insertable_into");
                         boolean isPartitioned = "p".equals(relKind);
                         boolean isPartition = partitionParents.containsKey(tableName);
-                        String partitionParent = partitionParents.get(tableName);
+                        PartitionParentInfo partitionParentInfo = partitionParents.get(tableName);
+                        String partitionParent = partitionParentInfo == null ? null : partitionParentInfo.parentName;
+                        String partitionBound = partitionParentInfo == null ? null : partitionParentInfo.bound;
                         PartitionInfo partitionInfo = partitionedTables.get(tableName);
                         if (partitionInfo == null) {
                             partitionInfo = new PartitionInfo(PostgresTable.PartitionStrategy.NONE, List.of());
@@ -470,13 +479,13 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
                         boolean isView = "VIEW".equalsIgnoreCase(relationType) || "v".equals(relKind)
                                 || "m".equals(relKind);
                         PostgresTable.TableType tableType = getTableType(tableTypeSchema);
-                        List<PostgresColumn> databaseColumns = getTableColumns(con, tableName);
-                        List<PostgresIndex> indexes = getIndexes(con, tableName);
-                        List<PostgresStatisticsObject> statistics = getStatistics(con, tableName);
-                        List<PostgresConstraint> constraints = getConstraints(con, tableName);
+                        List<PostgresColumn> databaseColumns = getTableColumns(con, tableTypeSchema, tableName);
+                        List<PostgresIndex> indexes = getIndexes(con, tableTypeSchema, tableName);
+                        List<PostgresStatisticsObject> statistics = getStatistics(con, tableTypeSchema, tableName);
+                        List<PostgresConstraint> constraints = getConstraints(con, tableTypeSchema, tableName);
                         PostgresTable t = new PostgresTable(tableName, databaseColumns, indexes, tableType, statistics,
                                 constraints, isView, isInsertable, isPartitioned, isPartition, partitionParent,
-                                partitionInfo.strategy, partitionInfo.keyColumns);
+                                partitionBound, partitionInfo.strategy, partitionInfo.keyColumns);
                         for (PostgresColumn c : databaseColumns) {
                             c.setTable(t);
                         }
@@ -490,10 +499,11 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
         }
     }
 
-    private static Map<String, String> getPartitionParents(SQLConnection con) throws SQLException {
-        Map<String, String> partitionParents = new HashMap<>();
+    private static Map<String, PartitionParentInfo> getPartitionParents(SQLConnection con) throws SQLException {
+        Map<String, PartitionParentInfo> partitionParents = new HashMap<>();
         try (Statement s = con.createStatement()) {
-            try (ResultSet rs = s.executeQuery("SELECT child.relname AS child_name, parent.relname AS parent_name "
+            try (ResultSet rs = s.executeQuery("SELECT child.relname AS child_name, parent.relname AS parent_name, "
+                    + "pg_get_expr(child.relpartbound, child.oid) AS partition_bound "
                     + "FROM pg_inherits inh "
                     + "JOIN pg_class child ON child.oid = inh.inhrelid "
                     + "JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace "
@@ -503,7 +513,8 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
                     + "AND (parent_ns.nspname='public' OR parent_ns.nspname LIKE 'pg_temp_%') "
                     + "AND child.relispartition;")) {
                 while (rs.next()) {
-                    partitionParents.put(rs.getString("child_name"), rs.getString("parent_name"));
+                    partitionParents.put(rs.getString("child_name"),
+                            new PartitionParentInfo(rs.getString("parent_name"), rs.getString("partition_bound")));
                 }
             }
         }
@@ -574,7 +585,17 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
         }
     }
 
-    protected static List<PostgresStatisticsObject> getStatistics(SQLConnection con, String tableName)
+    private static final class PartitionParentInfo {
+        private final String parentName;
+        private final String bound;
+
+        private PartitionParentInfo(String parentName, String bound) {
+            this.parentName = parentName;
+            this.bound = bound;
+        }
+    }
+
+    protected static List<PostgresStatisticsObject> getStatistics(SQLConnection con, String tableSchema, String tableName)
             throws SQLException {
         List<PostgresStatisticsObject> statistics = new ArrayList<>();
         try (Statement s = con.createStatement()) {
@@ -582,9 +603,9 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
                     "SELECT stx.stxname FROM pg_statistic_ext stx "
                             + "JOIN pg_class rel ON rel.oid = stx.stxrelid "
                             + "JOIN pg_namespace n ON n.oid = rel.relnamespace "
-                            + "WHERE rel.relname = '%s' AND (n.nspname='public' OR n.nspname LIKE 'pg_temp_%%') "
+                            + "WHERE rel.relname = '%s' AND n.nspname = '%s' "
                             + "ORDER BY stx.stxname;",
-                    tableName))) {
+                    tableName, tableSchema))) {
                 while (rs.next()) {
                     statistics.add(new PostgresStatisticsObject(rs.getString("stxname")));
                 }
@@ -593,16 +614,17 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
         return statistics;
     }
 
-    protected static List<PostgresConstraint> getConstraints(SQLConnection con, String tableName) throws SQLException {
+    protected static List<PostgresConstraint> getConstraints(SQLConnection con, String tableSchema, String tableName)
+            throws SQLException {
         List<PostgresConstraint> constraints = new ArrayList<>();
         try (Statement s = con.createStatement()) {
             try (ResultSet rs = s.executeQuery(String.format(
                     "SELECT con.conname, con.contype FROM pg_constraint con "
                             + "JOIN pg_class rel ON rel.oid = con.conrelid "
                             + "JOIN pg_namespace n ON n.oid = rel.relnamespace "
-                            + "WHERE rel.relname = '%s' AND (n.nspname='public' OR n.nspname LIKE 'pg_temp_%%') "
+                            + "WHERE rel.relname = '%s' AND n.nspname = '%s' "
                             + "ORDER BY con.conname;",
-                    tableName))) {
+                    tableName, tableSchema))) {
                 while (rs.next()) {
                     String name = rs.getString("conname");
                     String type = rs.getString("contype");
@@ -626,7 +648,8 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
         return tableType;
     }
 
-    protected static List<PostgresIndex> getIndexes(SQLConnection con, String tableName) throws SQLException {
+    protected static List<PostgresIndex> getIndexes(SQLConnection con, String tableSchema, String tableName)
+            throws SQLException {
         List<PostgresIndex> indexes = new ArrayList<>();
         try (Statement s = con.createStatement()) {
             try (ResultSet rs = s.executeQuery(String
@@ -637,9 +660,9 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
                             + "JOIN pg_namespace n ON n.oid = tbl.relnamespace AND n.nspname = i.schemaname "
                             + "JOIN pg_class idx ON idx.relname = i.indexname AND idx.relnamespace = n.oid "
                             + "JOIN pg_index ix ON ix.indexrelid = idx.oid "
-                            + "WHERE i.tablename='%s' AND (i.schemaname='public' OR i.schemaname LIKE 'pg_temp_%%') "
+                            + "WHERE i.tablename='%s' AND i.schemaname = '%s' "
                             + "ORDER BY i.indexname;",
-                            tableName))) {
+                            tableName, tableSchema))) {
                 while (rs.next()) {
                     String indexName = rs.getString("indexname");
                     if (DBMSCommon.matchesIndexName(indexName)) {
@@ -653,7 +676,8 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
         return indexes;
     }
 
-    protected static List<PostgresColumn> getTableColumns(SQLConnection con, String tableName) throws SQLException {
+    protected static List<PostgresColumn> getTableColumns(SQLConnection con, String tableSchema, String tableName)
+            throws SQLException {
         List<PostgresColumn> columns = new ArrayList<>();
         try (Statement s = con.createStatement()) {
             try (ResultSet rs = s.executeQuery(
@@ -663,7 +687,8 @@ public class PostgresSchema extends AbstractSchema<PostgresGlobalState, Postgres
                             + "join pg_catalog.pg_namespace n on n.nspname = c.table_schema "
                             + "join pg_catalog.pg_class cl on cl.relname = c.table_name and cl.relnamespace = n.oid "
                             + "join pg_catalog.pg_attribute a on a.attrelid = cl.oid and a.attname = c.column_name "
-                            + "where c.table_name = '" + tableName + "' and a.attnum > 0 and not a.attisdropped "
+                            + "where c.table_schema = '" + tableSchema + "' and c.table_name = '" + tableName
+                            + "' and a.attnum > 0 and not a.attisdropped "
                             + "ORDER BY c.column_name")) {
                 while (rs.next()) {
                     String columnName = rs.getString("column_name");

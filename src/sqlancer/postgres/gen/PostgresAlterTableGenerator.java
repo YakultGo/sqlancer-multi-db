@@ -316,6 +316,9 @@ public class PostgresAlterTableGenerator {
             return !randomTable.getConstraints().isEmpty();
         case ALTER_COLUMN_TYPE:
             return !randomTable.isPartitioned() && randomTable.getTableType() != PostgresTable.TableType.TEMPORARY;
+        case ALTER_COLUMN_DROP_EXPRESSION:
+            // TODO: Re-enable after PostgreSQL generated columns are modeled in the schema/generators.
+            return false;
         case ADD_TABLE_CONSTRAINT_USING_INDEX:
             return !getCompatibleIndexesForConstraint().isEmpty();
         case VALIDATE_CONSTRAINT:
@@ -529,18 +532,7 @@ public class PostgresAlterTableGenerator {
             errors.add("is an identity column");
             break;
         case ALTER_COLUMN_DROP_EXPRESSION:
-            alterColumn(randomTable, sb);
-            sb.append("DROP EXPRESSION");
-            if (Randomly.getBoolean()) {
-                sb.append(" IF EXISTS");
-            }
-            errors.add("is not a generated column");
-            errors.add("is not a stored generated column");
-            errors.add("cannot drop expression from inherited column");
-            errors.add("cannot drop generation expression from inherited column");
-            errors.add("must be applied to child tables too");
-            errors.add("cannot drop expression from column");
-            break;
+            throw new IgnoreMeException();
         case ADD_TABLE_CONSTRAINT:
             appendAddConstraint(sb, errors);
             break;

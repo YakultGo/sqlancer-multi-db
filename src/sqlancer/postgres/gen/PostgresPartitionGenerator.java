@@ -2,6 +2,8 @@ package sqlancer.postgres.gen;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import sqlancer.IgnoreMeException;
@@ -18,6 +20,12 @@ public final class PostgresPartitionGenerator {
 
     private static final int HASH_MODULUS = 8;
     private static final String DEFAULT_PARTITION_SUFFIX = "_default";
+    private static final Pattern HASH_REMAINDER_PATTERN = Pattern.compile("(?i)remainder\\s+(\\d+)");
+    private static final Pattern LIST_INT_PATTERN = Pattern.compile("(?i)FOR\\s+VALUES\\s+IN\\s*\\(\\s*(-?\\d+)\\s*\\)");
+    private static final Pattern GENERATED_LIST_TEXT_PATTERN = Pattern.compile("sqlancer_partition_(\\d+)");
+    private static final Pattern RANGE_INT_PATTERN = Pattern
+            .compile("(?i)FOR\\s+VALUES\\s+FROM\\s*\\(\\s*(-?\\d+)\\s*\\)\\s+TO\\s*\\(\\s*(-?\\d+)\\s*\\)");
+    private static final Pattern GENERATED_INTERVAL_OFFSET_PATTERN = Pattern.compile("'(\\d+)\\s+days'");
 
     private PostgresPartitionGenerator() {
     }
@@ -29,8 +37,8 @@ public final class PostgresPartitionGenerator {
             throw new IgnoreMeException();
         }
         PostgresTable parent = selectPartitionParent(candidates);
-        int partitionIndex = getNextPartitionIndex(globalState, parent);
-        if (parent.getPartitionStrategy() == PartitionStrategy.HASH && partitionIndex >= HASH_MODULUS) {
+        int partitionIndex = getNextPartitionIndexForCreate(globalState, parent);
+        if (partitionIndex == -1) {
             throw new IgnoreMeException();
         }
         boolean createDefaultPartition = shouldCreateDefaultPartition(globalState, parent);
@@ -41,7 +49,7 @@ public final class PostgresPartitionGenerator {
         if (createDefaultPartition) {
             sb.append(createDefaultPartitionName(parent));
         } else {
-            sb.append(createPartitionName(globalState, parent, partitionIndex));
+            sb.append(createPartitionName(parent, partitionIndex));
         }
         sb.append(" PARTITION OF ");
         sb.append(parent.getName());
@@ -113,8 +121,8 @@ public final class PostgresPartitionGenerator {
             throw new IgnoreMeException();
         }
         PostgresTable parent = selectPartitionParent(parents);
-        int partitionIndex = getNextPartitionIndex(globalState, parent);
-        if (parent.getPartitionStrategy() == PartitionStrategy.HASH && partitionIndex >= HASH_MODULUS) {
+        int partitionIndex = getNextPartitionIndexForAttach(globalState, parent);
+        if (partitionIndex == -1) {
             throw new IgnoreMeException();
         }
         List<PostgresTable> children = getAttachablePartitionChildren(globalState, parent);
@@ -194,12 +202,18 @@ public final class PostgresPartitionGenerator {
         if (!canCreatePartitionFor(parent)) {
             throw new IgnoreMeException();
         }
+        PostgresColumn keyColumn = getPartitionKeyColumn(parent);
+        if (hasDefaultPartition(globalState, parent) && Randomly.getBooleanWithRatherLowProbability()) {
+            return defaultRoutingLiteral(keyColumn.getCompoundType().getDataType());
+        }
         List<Integer> partitionIndexes = getExistingPartitionIndexes(globalState, parent);
         if (partitionIndexes.isEmpty()) {
+            if (hasDefaultPartition(globalState, parent)) {
+                return defaultRoutingLiteral(keyColumn.getCompoundType().getDataType());
+            }
             throw new IgnoreMeException();
         }
         int partitionIndex = Randomly.fromList(partitionIndexes);
-        PostgresColumn keyColumn = getPartitionKeyColumn(parent);
         switch (parent.getPartitionStrategy()) {
         case RANGE:
             return rangeRoutingLiteral(keyColumn.getCompoundType().getDataType(), partitionIndex);
@@ -276,51 +290,195 @@ public final class PostgresPartitionGenerator {
         return null;
     }
 
-    private static int getNextPartitionIndex(PostgresGlobalState globalState, PostgresTable parent) {
+    private static int getNextPartitionIndexForCreate(PostgresGlobalState globalState, PostgresTable parent) {
+        PostgresColumn keyColumn = getPartitionKeyColumn(parent);
+        int limit = getPartitionIndexLimit(parent, keyColumn);
+        List<Integer> existingPartitionIndexes = getExistingPartitionIndexes(globalState, parent);
         String prefix = parent.getName() + "_p";
-        int next = 0;
-        for (PostgresTable table : globalState.getSchema().getDatabaseTables()) {
-            if (!table.getName().startsWith(prefix)) {
+        for (int index = 0; index < limit; index++) {
+            if (existingPartitionIndexes.contains(index)) {
                 continue;
             }
-            String suffix = table.getName().substring(prefix.length());
-            try {
-                next = Math.max(next, Integer.parseInt(suffix) + 1);
-            } catch (NumberFormatException ignored) {
-                next++;
+            String candidateName = prefix + index;
+            boolean nameExists = globalState.getSchema().getDatabaseTables().stream()
+                    .anyMatch(table -> table.getName().equals(candidateName));
+            if (!nameExists) {
+                return index;
             }
         }
-        return next;
+        return -1;
+    }
+
+    private static int getNextPartitionIndexForAttach(PostgresGlobalState globalState, PostgresTable parent) {
+        PostgresColumn keyColumn = getPartitionKeyColumn(parent);
+        int limit = getPartitionIndexLimit(parent, keyColumn);
+        List<Integer> existingPartitionIndexes = getExistingPartitionIndexes(globalState, parent);
+        for (int index = 0; index < limit; index++) {
+            if (!existingPartitionIndexes.contains(index)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static int getPartitionIndexLimit(PostgresTable parent, PostgresColumn keyColumn) {
+        switch (parent.getPartitionStrategy()) {
+        case HASH:
+            return HASH_MODULUS;
+        case LIST:
+            switch (keyColumn.getCompoundType().getDataType()) {
+            case ENUM:
+                return 4;
+            case BOOLEAN:
+                return 2;
+            default:
+                return Integer.MAX_VALUE;
+            }
+        case RANGE:
+            return Integer.MAX_VALUE;
+        case NONE:
+        default:
+            throw new IgnoreMeException();
+        }
     }
 
     private static List<Integer> getExistingPartitionIndexes(PostgresGlobalState globalState, PostgresTable parent) {
         List<Integer> indexes = new ArrayList<>();
         String prefix = parent.getName() + "_p";
+        PostgresColumn keyColumn = getPartitionKeyColumn(parent);
         for (PostgresTable table : globalState.getSchema().getDatabaseTables()) {
-            if (!parent.getName().equals(table.getPartitionParent()) || !table.getName().startsWith(prefix)) {
+            if (!parent.getName().equals(table.getPartitionParent())) {
                 continue;
             }
-            String suffix = table.getName().substring(prefix.length());
-            try {
-                indexes.add(Integer.parseInt(suffix));
-            } catch (NumberFormatException ignored) {
+            Integer index = getPartitionIndexFromBound(parent, keyColumn, table.getPartitionBound());
+            if (index == null && table.getName().startsWith(prefix)) {
+                String suffix = table.getName().substring(prefix.length());
+                try {
+                    index = Integer.parseInt(suffix);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            if (index != null && !indexes.contains(index)) {
+                indexes.add(index);
             }
         }
         return indexes;
     }
 
-    static String createPartitionName(PostgresGlobalState globalState, PostgresTable parent, int partitionIndex) {
-        String prefix = parent.getName() + "_p";
-        int candidateIndex = partitionIndex;
-        while (true) {
-            String candidate = prefix + candidateIndex;
-            boolean exists = globalState.getSchema().getDatabaseTables().stream()
-                    .anyMatch(table -> table.getName().equals(candidate));
-            if (!exists) {
-                return candidate;
-            }
-            candidateIndex++;
+    private static Integer getPartitionIndexFromBound(PostgresTable parent, PostgresColumn keyColumn, String bound) {
+        if (bound == null || keyColumn == null || isDefaultPartitionBound(bound)) {
+            return null;
         }
+        switch (parent.getPartitionStrategy()) {
+        case HASH:
+            return getHashPartitionIndexFromBound(bound);
+        case LIST:
+            return getListPartitionIndexFromBound(keyColumn, bound);
+        case RANGE:
+            return getRangePartitionIndexFromBound(keyColumn, bound);
+        case NONE:
+        default:
+            return null;
+        }
+    }
+
+    private static boolean isDefaultPartitionBound(String bound) {
+        if (bound == null) {
+            return false;
+        }
+        return bound.toUpperCase().contains("DEFAULT");
+    }
+
+    private static Integer getHashPartitionIndexFromBound(String bound) {
+        Matcher matcher = HASH_REMAINDER_PATTERN.matcher(bound);
+        if (!matcher.find()) {
+            return null;
+        }
+        return Integer.parseInt(matcher.group(1));
+    }
+
+    private static Integer getListPartitionIndexFromBound(PostgresColumn keyColumn, String bound) {
+        switch (keyColumn.getCompoundType().getDataType()) {
+        case INT:
+            Matcher intMatcher = LIST_INT_PATTERN.matcher(bound);
+            if (intMatcher.find()) {
+                return Integer.parseInt(intMatcher.group(1));
+            }
+            return null;
+        case TEXT:
+        case VARCHAR:
+        case CHAR:
+            Matcher textMatcher = GENERATED_LIST_TEXT_PATTERN.matcher(bound);
+            if (textMatcher.find()) {
+                return Integer.parseInt(textMatcher.group(1));
+            }
+            return null;
+        case ENUM:
+            String[] labels = { "a", "b", "c", "d" };
+            for (int i = 0; i < labels.length; i++) {
+                if (bound.contains("'" + labels[i] + "'")) {
+                    return i;
+                }
+            }
+            return null;
+        case BOOLEAN:
+            String normalizedBound = bound.toLowerCase();
+            if (normalizedBound.contains("false")) {
+                return 0;
+            }
+            if (normalizedBound.contains("true")) {
+                return 1;
+            }
+            return null;
+        default:
+            return null;
+        }
+    }
+
+    private static Integer getRangePartitionIndexFromBound(PostgresColumn keyColumn, String bound) {
+        switch (keyColumn.getCompoundType().getDataType()) {
+        case INT:
+            Matcher intMatcher = RANGE_INT_PATTERN.matcher(bound);
+            if (intMatcher.find()) {
+                int from = Integer.parseInt(intMatcher.group(1));
+                int to = Integer.parseInt(intMatcher.group(2));
+                if (to - from == 100 && from % 100 == 0) {
+                    return from / 100;
+                }
+            }
+            return null;
+        case DATE:
+            Matcher dateMatcher = Pattern.compile("'2000-01-01'::date\\s*\\+\\s*(\\d+)").matcher(bound);
+            if (dateMatcher.find()) {
+                int offset = Integer.parseInt(dateMatcher.group(1));
+                if (offset % 100 == 0) {
+                    return offset / 100;
+                }
+            }
+            return null;
+        case TIMESTAMP:
+        case TIMESTAMPTZ:
+            Matcher intervalMatcher = GENERATED_INTERVAL_OFFSET_PATTERN.matcher(bound);
+            if (intervalMatcher.find()) {
+                int offset = Integer.parseInt(intervalMatcher.group(1));
+                if (offset % 100 == 0) {
+                    return offset / 100;
+                }
+            }
+            return null;
+        default:
+            return null;
+        }
+    }
+
+    static String createPartitionName(PostgresTable parent, int partitionIndex) {
+        return parent.getName() + "_p" + partitionIndex;
+    }
+
+    private static boolean hasDefaultPartition(PostgresGlobalState globalState, PostgresTable parent) {
+        return globalState.getSchema().getDatabaseTables().stream()
+                .anyMatch(table -> parent.getName().equals(table.getPartitionParent())
+                        && isDefaultPartitionBound(table.getPartitionBound()));
     }
 
     private static boolean shouldCreateDefaultPartition(PostgresGlobalState globalState, PostgresTable parent) {
@@ -392,6 +550,7 @@ public final class PostgresPartitionGenerator {
         if (isListPartitionType(dataType)) {
             strategies.add(PartitionStrategy.LIST);
         }
+        strategies.add(PartitionStrategy.HASH);
         return strategies;
     }
 
@@ -399,13 +558,13 @@ public final class PostgresPartitionGenerator {
         switch (strategy) {
         case RANGE:
         case LIST:
+        case HASH:
             sb.append(" PARTITION BY ");
             sb.append(strategy.name());
             sb.append("(");
             sb.append(keyColumn.getName());
             sb.append(")");
             break;
-        case HASH:
         case NONE:
         default:
             throw new IgnoreMeException();
@@ -439,6 +598,27 @@ public final class PostgresPartitionGenerator {
             return "'2000-01-01 00:00:00'::timestamp + interval '" + value + " days'";
         case TIMESTAMPTZ:
             return "'2000-01-01 00:00:00+00'::timestamptz + interval '" + value + " days'";
+        default:
+            throw new IgnoreMeException();
+        }
+    }
+
+    private static String defaultRoutingLiteral(PostgresDataType dataType) {
+        switch (dataType) {
+        case INT:
+            return "-1";
+        case TEXT:
+        case VARCHAR:
+        case CHAR:
+        case ENUM:
+        case BOOLEAN:
+            return "NULL";
+        case DATE:
+            return "'1999-12-31'::date";
+        case TIMESTAMP:
+            return "'1999-12-31 00:00:00'::timestamp";
+        case TIMESTAMPTZ:
+            return "'1999-12-31 00:00:00+00'::timestamptz";
         default:
             throw new IgnoreMeException();
         }

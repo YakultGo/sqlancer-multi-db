@@ -62,8 +62,8 @@ public class StatementExecutor<G extends GlobalState<?, ?, ?>, A extends Abstrac
             nrRemaining[i]--;
             @SuppressWarnings("rawtypes")
             Query query = null;
+            boolean success = false;
             try {
-                boolean success;
                 int nrTries = 0;
                 do {
                     query = nextAction.getQuery(globalState);
@@ -73,7 +73,7 @@ public class StatementExecutor<G extends GlobalState<?, ?, ?>, A extends Abstrac
             } catch (IgnoreMeException ignored) {
 
             }
-            if (query != null && query.couldAffectSchema()) {
+            if (success && query != null && query.couldAffectSchema()) {
                 globalState.updateSchema();
                 queryConsumer.notify(query);
             }

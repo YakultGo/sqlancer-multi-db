@@ -33,10 +33,18 @@ public class PostgresTableGenerator {
     private final PostgresGlobalState globalState;
 
     public PostgresTableGenerator(String tableName, PostgresSchema newSchema, PostgresGlobalState globalState) {
-        this.tableName = tableName;
         this.newSchema = newSchema;
         this.globalState = globalState;
-        table = new PostgresTable(tableName, columnsToBeAdded, null, null, null, false, false);
+        if (Randomly.getBoolean()) {
+            isTemporaryTable = true;
+            this.tableName = createTemporaryTableName(tableName, newSchema);
+        } else if (Randomly.getBoolean()) {
+            isUnloggedTable = true;
+            this.tableName = tableName;
+        } else {
+            this.tableName = tableName;
+        }
+        table = new PostgresTable(this.tableName, columnsToBeAdded, null, null, null, false, false);
         errors.add("invalid input syntax for");
         errors.add("is not unique");
         errors.add("integer out of range");
@@ -68,13 +76,11 @@ public class PostgresTableGenerator {
     protected SQLQueryAdapter generate() {
         columnCanHavePrimaryKey = true;
         sb.append("CREATE");
-        if (Randomly.getBoolean()) {
+        if (isTemporaryTable) {
             sb.append(" ");
-            isTemporaryTable = true;
             sb.append(Randomly.fromOptions("TEMPORARY", "TEMP"));
-        } else if (Randomly.getBoolean()) {
+        } else if (isUnloggedTable) {
             sb.append(" UNLOGGED");
-            isUnloggedTable = true;
         }
         sb.append(" TABLE");
         if (Randomly.getBoolean()) {
@@ -90,8 +96,20 @@ public class PostgresTableGenerator {
         return new SQLQueryAdapter(sb.toString(), errors, true);
     }
 
+    private static String createTemporaryTableName(String baseName, PostgresSchema schema) {
+        int suffix = 0;
+        while (true) {
+            String candidate = suffix == 0 ? baseName + "_temp" : baseName + "_temp" + (suffix - 1);
+            if (schema.getDatabaseTables().stream().noneMatch(table -> table.getName().equals(candidate))) {
+                return candidate;
+            }
+            suffix++;
+        }
+    }
+
     private void createStandard() throws AssertionError {
         sb.append("(");
+        isPartitionedTable = shouldGeneratePartitionedTable();
         int columnCount = Math.max(1, globalState.getDbmsSpecificOptions().getPgTableColumns());
         for (int i = 0; i < columnCount; i++) {
             if (i != 0) {
@@ -100,7 +118,7 @@ public class PostgresTableGenerator {
             String name = DBMSCommon.createColumnName(i);
             createColumn(name);
         }
-        if (Randomly.getBoolean()) {
+        if (shouldGenerateTableConstraints()) {
             errors.add("constraints on temporary tables may reference only temporary tables");
             errors.add("constraints on unlogged tables may reference only permanent or unlogged tables");
             errors.add("constraints on permanent tables may reference only permanent tables");
@@ -165,25 +183,11 @@ public class PostgresTableGenerator {
     }
 
     private void generatePartitionBy() {
-        // PostgreSQL does not allow combining UNLOGGED with partitioned tables:
-        // "partitioned tables cannot be unlogged"
-        if (isUnloggedTable) {
-            isPartitionedTable = false;
+        if (!isPartitionedTable) {
             return;
         }
-        // PostgreSQL does not support temporary partitioned tables in general.
-        // Avoid generating "CREATE TEMP TABLE ... PARTITION BY ..." combinations.
-        if (isTemporaryTable) {
-            isPartitionedTable = false;
-            return;
-        }
-        if (Randomly.getBoolean()) {
-            isPartitionedTable = false;
-            return;
-        }
-        isPartitionedTable = true;
         sb.append(" PARTITION BY ");
-        String partitionOption = Randomly.fromOptions("RANGE", "LIST", "HASH");
+        String partitionOption = getPartitionOption();
         sb.append(partitionOption);
         sb.append("(");
         errors.add("unrecognized parameter");
@@ -216,6 +220,34 @@ public class PostgresTableGenerator {
             }
         }
         sb.append(")");
+    }
+
+    private boolean shouldGeneratePartitionedTable() {
+        // PostgreSQL rejects UNLOGGED partitioned tables and temporary partitioned tables.
+        if (isUnloggedTable || isTemporaryTable) {
+            return false;
+        }
+        return Randomly.getBoolean();
+    }
+
+    private boolean shouldGenerateTableConstraints() {
+        if (!isPartitionedTable) {
+            return Randomly.getBoolean();
+        }
+        return Randomly.getBooleanWithRatherLowProbability();
+    }
+
+    private String getPartitionOption() {
+        List<String> optionsWithSimpleColumns = new ArrayList<>();
+        for (String option : List.of("RANGE", "LIST", "HASH")) {
+            if (!getSimplePartitionColumns(option).isEmpty()) {
+                optionsWithSimpleColumns.add(option);
+            }
+        }
+        if (!optionsWithSimpleColumns.isEmpty() && !Randomly.getBooleanWithRatherLowProbability()) {
+            return Randomly.fromList(optionsWithSimpleColumns);
+        }
+        return Randomly.fromOptions("RANGE", "LIST", "HASH");
     }
 
     private List<PostgresColumn> getSimplePartitionColumns(String partitionOption) {
@@ -265,6 +297,9 @@ public class PostgresTableGenerator {
     }
 
     private void generateInherits() {
+        if (isPartitionedTable) {
+            return;
+        }
         if (Randomly.getBoolean() && !newSchema.getDatabaseTablesWithoutViews().isEmpty()) {
             sb.append(" INHERITS(");
             sb.append(newSchema.getDatabaseTablesRandomSubsetNotEmpty().stream().map(t -> t.getName())
@@ -293,6 +328,10 @@ public class PostgresTableGenerator {
         }
         if (!columnCanHavePrimaryKey || columnHasPrimaryKey) {
             constraintSubset.remove(ColumnConstraint.PRIMARY_KEY);
+        }
+        if (isPartitionedTable) {
+            constraintSubset.remove(ColumnConstraint.PRIMARY_KEY);
+            constraintSubset.remove(ColumnConstraint.UNIQUE);
         }
         if (constraintSubset.contains(ColumnConstraint.GENERATED)
                 && constraintSubset.contains(ColumnConstraint.DEFAULT)) {
