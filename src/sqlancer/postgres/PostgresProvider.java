@@ -338,10 +338,10 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
 
             String dropCommand = "DROP DATABASE";
             boolean forceDrop = Randomly.getBoolean();
-            if (forceDrop) {
-                dropCommand += " FORCE";
-            }
             dropCommand += " IF EXISTS " + databaseName;
+            if (forceDrop) {
+                dropCommand += " WITH (FORCE)";
+            }
 
             globalState.getState().logStatement(dropCommand + ";");
             try (Statement s = con.createStatement()) {
