@@ -217,7 +217,7 @@ public class PostgresProvider extends SQLProviderAdapter<PostgresGlobalState, Po
             nrPerformed = Randomly.getBooleanWithRatherLowProbability() ? r.getInteger(0, 2) : 0;
             break;
         case COMMIT:
-            nrPerformed = r.getInteger(0, 0);
+            nrPerformed = r.getInteger(3, 6);
             break;
         case ALTER_TABLE:
             nrPerformed = r.getInteger(8, 21);
